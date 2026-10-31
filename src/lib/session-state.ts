@@ -44,9 +44,19 @@ export function displayState(s: Session, live: SessionLive | undefined): Display
 	}
 }
 
+/** When a session last did something: its newest conversation, else when it started. */
+const lastActive = (s: Session, live: Record<string, SessionLive>) => live[s.id]?.summary?.updatedAt ?? s.lastStartedAt ?? s.createdAt;
+
 /** Sessions that need a person first, then busy ones, then the rest by recency. */
 export function sortForOverview(list: Session[], live: Record<string, SessionLive>): Session[] {
 	const rank: Record<DisplayState, number> = { waiting: 0, error: 1, working: 2, starting: 3, idle: 4, shell: 5, stopped: 6 };
-	const when = (s: Session) => live[s.id]?.summary?.updatedAt ?? s.lastStartedAt ?? s.createdAt;
-	return [...list].sort((a, b) => rank[displayState(a, live[a.id])] - rank[displayState(b, live[b.id])] || when(b).localeCompare(when(a)));
+	return [...list].sort((a, b) => rank[displayState(a, live[a.id])] - rank[displayState(b, live[b.id])] || lastActive(b, live).localeCompare(lastActive(a, live)));
+}
+
+/**
+ * Newest activity first, whatever the state, so the sidebar doesn't shuffle each time a
+ * session starts or finishes a turn.
+ */
+export function sortByRecency(list: Session[], live: Record<string, SessionLive>): Session[] {
+	return [...list].sort((a, b) => lastActive(b, live).localeCompare(lastActive(a, live)));
 }

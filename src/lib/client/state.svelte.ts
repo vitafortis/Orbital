@@ -113,7 +113,11 @@ export function upsertSession(s: Session) {
 	else sessions.list[i] = s;
 }
 
+/** Sessions deleted from this tab, which says so itself; a session page tells only of the others. */
+export const deletedHere = new Set<string>();
+
 export function removeSessionLocal(id: string) {
+	deletedHere.add(id);
 	sessions.list = sessions.list.filter((s) => s.id !== id);
 	delete sessions.live[id];
 }

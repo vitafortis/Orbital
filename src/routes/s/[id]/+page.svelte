@@ -1,8 +1,10 @@
 <script lang="ts">
 	import {
 		ArrowDown,
+		ArrowDownToLine,
 		ArrowUp,
 		ChevronDown,
+		ChevronUp,
 		CircleAlert,
 		CircleStop,
 		Copy,
@@ -37,6 +39,8 @@
 	import AwsProfilePicker from '#lib/components/AwsProfilePicker.svelte';
 	import BrandIcon from '#lib/components/BrandIcon.svelte';
 	import Terminal from '#lib/components/Terminal.svelte';
+	import { untrack } from 'svelte';
+	import { goto } from '$app/navigation';
 	import { api, errorMessage } from '#lib/client/api.ts';
 	import { copyText } from '#lib/client/clipboard.ts';
 	import { ago, githubLabel } from '#lib/client/format.ts';
@@ -46,7 +50,7 @@
 	import PanelSection from '#lib/components/PanelSection.svelte';
 	import { CLAUDE_ALIASES, modelLabel } from '#lib/models.ts';
 	import { findQuestion, type Question } from '#lib/pane.ts';
-	import { confirmAction, sessions, toast, upsertSession, useSessions } from '#lib/client/state.svelte.ts';
+	import { confirmAction, deletedHere, sessions, toast, upsertSession, useSessions } from '#lib/client/state.svelte.ts';
 	import { displayState, glowClass } from '#lib/session-state.ts';
 	import { repoLabel, sessionWorkdir } from '#lib/launch.ts';
 	import { ACCOUNT_KINDS, AGENT_LABEL, AGENT_PERMISSION_MODES } from '#lib/providers.ts';
@@ -57,7 +61,18 @@
 
 	let { data }: PageProps = $props();
 
-	const s = $derived(shown.list.find((x) => x.id === data.session.id) ?? data.session);
+	const listed = $derived(shown.list.find((x) => x.id === data.session.id));
+	// Not in the list: deleted, here or in another tab. The copy the page loaded with may still say
+	// running, which would show it green and keep its terminal reconnecting; show it stopped instead.
+	const s = $derived(listed ?? { ...data.session, status: 'stopped' as const, containerId: null });
+	$effect(() => {
+		// Deleting from this tab already toasts and navigates away.
+		if (listed || deletedHere.has(data.session.id)) return;
+		untrack(() => {
+			toast('info', `${data.session.name} was deleted`);
+			void goto('/', { replaceState: true });
+		});
+	});
 	const live = $derived(shown.live[s.id]);
 	const view = $derived(displayState(s, live));
 	const running = $derived(s.status === 'running');
@@ -134,11 +149,23 @@
 	const attachCommand = $derived(`docker exec -it -u node ${s.containerName} tmux attach -t main`);
 
 	$effect(() => {
-		// Narrow screens start with the panel closed; touch screens get the key bar.
-		if (matchMedia('(max-width: 1023px)').matches) panel = false;
+		// The panel stays as it was last left; at first, open only where there's room for it.
+		let saved: string | null = null;
+		try {
+			saved = localStorage.getItem('orb.panel');
+		} catch {}
+		panel = saved ? saved === 'open' : matchMedia('(min-width: 1536px)').matches;
+		// Touch screens get the key bar.
 		touch = matchMedia('(pointer: coarse)').matches;
 		phone = matchMedia('(max-width: 639px)').matches;
 	});
+
+	function togglePanel() {
+		panel = !panel;
+		try {
+			localStorage.setItem('orb.panel', panel ? 'open' : 'closed');
+		} catch {}
+	}
 
 	async function act(fn: () => Promise<unknown>) {
 		busy = true;
@@ -335,7 +362,7 @@
 				</button>
 			{/snippet}
 		</Menu>
-		<button class="btn btn-ghost btn-icon btn-sm" title={panel ? 'Hide details' : 'Show details'} onclick={() => (panel = !panel)}>
+		<button class="btn btn-ghost btn-icon btn-sm" title={panel ? 'Hide details' : 'Show details'} onclick={togglePanel}>
 			{#if panel}<PanelRightClose />{:else}<PanelRightOpen />{/if}
 		</button>
 	</header>
@@ -349,10 +376,18 @@
 				{#if question}<QuestionBar {question} {agentName} onanswer={(n) => answer(String(n))} oncancel={() => answer('Escape')} />{/if}
 				<div class="relative min-h-0 flex-1">
 					{#key `${s.containerId}:${mode}`}
-						<Terminal bind:this={term} path="/ws/sessions/{s.id}/terminal?mode={mode}" autofocus onstate={(v) => (conn = v)} onscreen={(lines) => (question = mode === 'claude' ? findQuestion(lines) : null)} />
+						<Terminal bind:this={term} path="/ws/sessions/{s.id}/terminal?mode={mode}" turns={mode === 'claude'} autofocus onstate={(v) => (conn = v)} onscreen={(lines) => (question = mode === 'claude' ? findQuestion(lines) : null)} />
 					{/key}
 					<!-- The agent's state as a glow around its terminal, over it but never in the way. -->
 					<div class="pointer-events-none absolute inset-0 z-10 {glowClass(view, { inset: true, connected: conn !== 'closed' })}"></div>
+					{#if mode === 'claude' && conn === 'open'}
+						<!-- Back through the conversation a turn at a time. Pressing keeps the terminal focused. -->
+						<div class="absolute top-1/2 right-3 z-20 flex -translate-y-1/2 flex-col gap-1 opacity-40 transition-opacity hover:opacity-100 focus-within:opacity-100 max-sm:hidden">
+							{#each [{ to: 'previous', title: 'Previous prompt (Ctrl+Shift+↑)', icon: ChevronUp }, { to: 'next', title: 'Next prompt (Ctrl+Shift+↓)', icon: ChevronDown }, { to: 'latest', title: 'Back to now', icon: ArrowDownToLine }] as const as j (j.to)}
+								<button type="button" class="flex size-7 items-center justify-center rounded-md border border-term-edge text-[#c9cfda] hover:bg-white/10 hover:text-white" style="background: var(--term-chrome)" title={j.title} aria-label={j.title} onpointerdown={(e) => e.preventDefault()} onclick={() => term?.jumpTo(j.to)}><j.icon class="size-4" /></button>
+							{/each}
+						</div>
+					{/if}
 				</div>
 				{#if touch}
 					<!-- Keys a touch keyboard lacks. Pressing one keeps the terminal focused, so the keyboard stays up. -->
