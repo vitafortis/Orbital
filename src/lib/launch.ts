@@ -29,6 +29,11 @@ export function parseRepo(input: string): { url: string; fullName: string | null
 	return { url: u.toString(), fullName: null, dir };
 }
 
+/** What a session works on, for display: owner/name, the git URL, or that it has no repo. */
+export function repoLabel(s: { repoUrl: string; repoFullName: string | null }): string {
+	return s.repoFullName ?? (s.repoUrl || 'No repo');
+}
+
 /** A safe folder name under /workspace. */
 export function repoDirName(name: string): string {
 	return name

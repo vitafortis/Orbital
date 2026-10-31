@@ -1,6 +1,6 @@
 import { BadRequest, str } from './http.ts';
-import { parseModel, parsePermissionMode } from './sessions/input.ts';
 import { getAccount, type ProfileInput } from './store.ts';
+import { parseAwsProfileIds, parseModel, parsePermissionMode } from './sessions/input.ts';
 import { parsePatterns } from '#lib/profiles.ts';
 import { fitPermissionMode } from '#lib/providers.ts';
 
@@ -13,5 +13,12 @@ export function parseProfileInput(b: Record<string, unknown>): ProfileInput {
 	const repos = parsePatterns(raw);
 	if (repos.length > 100) throw new BadRequest('Keep it under 100 patterns');
 	for (const r of repos) if (r.length > 200 || /\s/.test(r)) throw new BadRequest(`"${r}" isn't a repository pattern`);
-	return { name, accountId, model: parseModel(b.model), permissionMode: fitPermissionMode(account.agent, parsePermissionMode(b.permissionMode)), repos };
+	return {
+		name,
+		accountId,
+		model: parseModel(b.model),
+		permissionMode: fitPermissionMode(account.agent, parsePermissionMode(b.permissionMode)),
+		repos,
+		awsProfileIds: parseAwsProfileIds(b.awsProfileIds)
+	};
 }

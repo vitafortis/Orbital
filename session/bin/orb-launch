@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Runs in the session's tmux pane: clones the repo on first launch, then starts the agent
-# ($ORB_AGENT: claude, codex or gemini) as /session/.orb/launch.json says (new, continue or
-# resume a conversation). When the agent exits the pane drops to a shell, so nothing on
-# screen is lost.
+# Runs in the session's tmux pane: clones the repo on first launch (or, without one, starts
+# an empty git folder), then starts the agent ($ORB_AGENT: claude, codex or gemini) as
+# /session/.orb/launch.json says (new, continue or resume a conversation). When the agent
+# exits the pane drops to a shell, so nothing on screen is lost.
 set -u
 
 repo="${ORB_REPO_DIR:?}"
@@ -21,7 +21,14 @@ fallback() {
 	exec bash -l
 }
 
-if [ ! -e "$repo/.git" ]; then
+if [ -z "${ORB_REPO_URL:-}" ] && [ ! -e "$repo/.git" ]; then
+	# No repo: an empty folder with git ready, for a new project. Push it with e.g.
+	# `gh repo create <name> --private --source . --push`.
+	mkdir -p "$repo" && git init -q -b main "$repo"
+	echo "${dim}No repository: starting in an empty folder (${reset}${bold}${repo}${reset}${dim}, git initialised).${reset}"
+	echo "${dim}To put it on GitHub: ${reset}${bold}gh repo create <name> --private --source . --push${reset}"
+	echo
+elif [ ! -e "$repo/.git" ]; then
 	echo "${dim}Cloning ${reset}${bold}${ORB_REPO_URL}${reset}${dim}${ORB_BASE_BRANCH:+ (branch $ORB_BASE_BRANCH)}…${reset}"
 	args=(clone --progress)
 	[ -n "${ORB_BASE_BRANCH:-}" ] && args+=(--branch "$ORB_BASE_BRANCH")

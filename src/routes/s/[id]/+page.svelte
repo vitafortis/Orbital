@@ -36,6 +36,7 @@
 	import StateDot from '#lib/components/StateDot.svelte';
 	import Switch from '#lib/components/Switch.svelte';
 	import LinkBar from '#lib/components/LinkBar.svelte';
+	import AwsProfilePicker from '#lib/components/AwsProfilePicker.svelte';
 	import BrandIcon from '#lib/components/BrandIcon.svelte';
 	import Terminal from '#lib/components/Terminal.svelte';
 	import { untrack } from 'svelte';
@@ -51,7 +52,7 @@
 	import { findQuestion, type Question } from '#lib/pane.ts';
 	import { confirmAction, deletedHere, sessions, toast, upsertSession, useSessions } from '#lib/client/state.svelte.ts';
 	import { displayState, glowClass } from '#lib/session-state.ts';
-	import { sessionWorkdir } from '#lib/launch.ts';
+	import { repoLabel, sessionWorkdir } from '#lib/launch.ts';
 	import { ACCOUNT_KINDS, AGENT_LABEL, AGENT_PERMISSION_MODES } from '#lib/providers.ts';
 	import { PERMISSION_MODES, type Conversation, type Session, type SessionLive, type SkillOption } from '#lib/types.ts';
 	import type { PageProps } from './$types';
@@ -203,6 +204,16 @@
 		}
 	}
 
+	/** AWS profiles apply at once: added ones work, removed ones stop working, no restart. */
+	async function setAws(awsProfileIds: string[]) {
+		try {
+			upsertSession(await api.patch<Session>(`/api/sessions/${s.id}`, { awsProfileIds }));
+			toast('success', 'AWS access changed', running ? 'The session has the new credentials now.' : undefined);
+		} catch (err) {
+			toast('error', "Couldn't change AWS access", errorMessage(err));
+		}
+	}
+
 	// Renaming: the title becomes a text box; Enter (or leaving it) saves, Escape cancels.
 	let renaming = $state(false);
 	let newName = $state('');
@@ -306,7 +317,7 @@
 				</h1>
 			{/if}
 			<p class="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
-				<span class="truncate">{s.repoFullName ?? s.repoUrl}</span>
+				<span class="truncate">{repoLabel(s)}</span>
 				{#if git?.branch ?? s.newBranch ?? s.baseBranch}
 					<GitBranch class="size-3 shrink-0" /><span class="truncate font-mono text-[0.6875rem]">{git?.branch ?? s.newBranch ?? s.baseBranch}</span>
 				{/if}
@@ -503,6 +514,13 @@
 							<option value="">None</option>
 						</select>
 					</div>
+					{#if data.awsProfiles.length || s.awsProfileIds.length}
+						<div>
+							<span class="label flex items-center gap-1.5"><BrandIcon brand="bedrock" class="size-3.5" />AWS</span>
+							<AwsProfilePicker profiles={data.awsProfiles} value={s.awsProfileIds} status={live?.aws ?? null} onchange={setAws} />
+							{#if account?.kind === 'bedrock' && s.awsProfileIds.length}<p class="mt-1.5 text-xs text-warning">Claude on Bedrock puts AWS_REGION (and its keys, if it uses keys) in the environment, which the AWS CLI prefers to profiles: use --profile with each name.</p>{/if}
+						</div>
+					{/if}
 					<div class="grid grid-cols-2 gap-2">
 						<div>
 							<label class="label" for="model">Model</label>

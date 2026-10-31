@@ -1,5 +1,6 @@
 <script lang="ts">
 	import '../app.css';
+	import { repoLabel } from '#lib/launch.ts';
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
 	import { onMount } from 'svelte';
@@ -181,7 +182,7 @@
 			<div class="group relative">
 				<a
 					href="/s/{s.id}"
-					title="{s.name} — {s.repoFullName ?? s.repoUrl}"
+					title="{s.name} — {repoLabel(s)}"
 					class="flex items-center gap-2.5 rounded-lg px-2.5 transition-colors {glowClass(view, { small: true })} {compact ? 'h-8 justify-center' : 'py-1.5 pr-8'} {active
 						? 'bg-accent text-foreground'
 						: 'text-muted-foreground hover:bg-accent/70 hover:text-foreground'}"

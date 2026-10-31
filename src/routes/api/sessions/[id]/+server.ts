@@ -1,7 +1,8 @@
 import { json } from '@sveltejs/kit';
 import { BadRequest, body, handler, NotFound } from '#lib/server/http.ts';
 import { AGENT_LABEL, AGENT_PERMISSION_MODES } from '#lib/providers.ts';
-import { parseModel, parseName, parsePermissionMode } from '#lib/server/sessions/input.ts';
+import { parseAwsProfileIds, parseModel, parseName, parsePermissionMode } from '#lib/server/sessions/input.ts';
+import { writeAwsCredentials } from '#lib/server/sessions/aws.ts';
 import { pokeLive } from '#lib/server/sessions/live.ts';
 import { deleteSession } from '#lib/server/sessions/runtime.ts';
 import { getAccount, getGithubAccount, getSession, updateSession } from '#lib/server/store.ts';
@@ -25,6 +26,7 @@ export const PATCH: RequestHandler = handler(async ({ params, request }) => {
 	if ('model' in b) patch.model = parseModel(b.model);
 	if ('permissionMode' in b) patch.permissionMode = parsePermissionMode(b.permissionMode);
 	if ('remoteControl' in b) patch.remoteControl = b.remoteControl !== false;
+	if ('awsProfileIds' in b) patch.awsProfileIds = parseAwsProfileIds(b.awsProfileIds);
 	if (typeof b.accountId === 'string') {
 		const account = getAccount(b.accountId);
 		if (!account) throw new NotFound('Model account not found');
@@ -44,6 +46,8 @@ export const PATCH: RequestHandler = handler(async ({ params, request }) => {
 	const updated = load(params.id);
 	// A running session switches GitHub accounts at once: git and gh read the token from files.
 	if ('githubAccountId' in patch && (updated.status === 'running' || updated.status === 'starting')) writeGithubCredentials(updated);
+	// AWS credentials too: added profiles work, removed ones stop working, without a restart.
+	if ('awsProfileIds' in patch && (updated.status === 'running' || updated.status === 'starting')) await writeAwsCredentials(updated);
 	return json(updated);
 });
 

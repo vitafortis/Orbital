@@ -18,7 +18,7 @@
 
 ## Features
 
-- **One container per session**: Orbital clones the repo (optionally onto a new branch) into a fresh container named `claude-<repo>` (`claude-<repo>-2`, `-3`… for more sessions on the same repo) and starts Claude Code there, with the name you gave it. All sessions share one image; repos, home folders and conversations live in a volume, so containers are disposable and nothing is rebuilt per project.
+- **One container per session**: Orbital clones the repo (optionally onto a new branch) into a fresh container named `orbital-<repo>` (`orbital-<repo>-2`, `-3`… for more sessions on the same repo) and starts Claude Code there, with the name you gave it. For a new project, start without a repo: the session gets an empty folder with git ready, and the agent can put it on GitHub with `gh repo create`. All sessions share one image; repos, home folders and conversations live in a volume, so containers are disposable and nothing is rebuilt per project.
 - **Terminals in the browser**: open any session as a full terminal (xterm.js over a WebSocket). Claude runs inside tmux, so closing the tab doesn't stop it, and several browsers can watch the same session. A **Shell** tab opens a second terminal in the same container. You type straight into the terminal, and scroll it with the wheel or a finger; on phones, a key bar adds Esc, Tab, ⇧Tab, arrows, Ctrl+C, End and Enter. When the agent asks something (a permission prompt, a question with options), the options show above the terminal as buttons. Links on screen, even long sign-in links that wrap over many lines, show above the terminal with Open and Copy buttons.
 - **Live overview**: every session shows whether Claude is *working*, *needs you* (a permission prompt or question), is *idle*, or has exited, plus the last prompt and reply, the task list, the tool it's running, git changes and the last lines of its screen. Sessions that need you sort to the top and get a quick-reply box. **Summarize** asks a small model for a three-sentence summary, using the session's own Claude account.
 - **Stop, resume, relaunch**: stopping removes the container and keeps everything else. Starting again picks up the newest conversation (`claude --continue`); you can also resume any earlier conversation or start a fresh one, and restart Claude inside a running session.
@@ -28,7 +28,8 @@
 - **Remote Control**: sessions on a Claude subscription start with `--remote-control "<name>"`, so they also show up at claude.ai/code and in the Claude app, under the session's name. The overview links straight to them.
 - **Model accounts**: sign in with a Claude Pro or Max plan in a terminal right in the browser (`claude auth login`), or add a long-lived token or an API key; run Claude on **Amazon Bedrock**, **Google Vertex AI**, **Microsoft Foundry** or an **LLM gateway** (LiteLLM, Portkey…); or use **OpenAI** (ChatGPT plan or API key) through Codex CLI and **Google** (Google account or Gemini API key) through Gemini CLI, in the same containers and terminals. Sessions of one account share its login, settings and memory, like terminals on one machine.
 - **Profiles**: say which repos go to which model: `acme/*` on Bedrock with Opus, `me/side-*` on Codex, everything else on your subscription. New sessions pick the matching profile's account, model and permissions (you can still change them), and Linear rules can use it too.
-- **GitHub accounts and orgs**: add personal access tokens, as many as you like and each with a name ("Acme org", "Read-only"), or sign in with GitHub through your own OAuth app. Rename a token or swap in a new one when it expires, without touching the sessions and automations that use it. Browse every repo the token can see across your account and organizations, pick a branch, or have a new session create its repo (private or public, under you or an organization). Sessions get the token for `git push` and `gh pr create`, and commit under your GitHub noreply address.
+- **GitHub accounts and orgs**: add personal access tokens, as many as you like and each with a name ("Acme org", "Read-only"), or sign in with GitHub through your own OAuth app. Rename a token or swap in a new one when it expires, without touching the sessions and automations that use it. Browse every repo your tokens can see across your account and organizations, and pick a branch, or have a new session create its repo (private or public, under you or an organization); New session uses the token that can open the repo (the stricter one when several can, which you can change). Sessions get the token for `git push` and `gh pr create`, and commit under your GitHub noreply address.
+- **AWS through SSO**: sign Orbital in to IAM Identity Center once, and give sessions AWS profiles, each one account and role. A session gets only those roles' short-lived keys, as the standard AWS files the CLI, SDKs and Terraform read, renewed while it runs; your sign-in never reaches it. The AWS CLI is in the session image.
 - **Sign-in your way**: a local admin account, plus single sign-on with any OpenID Connect provider (Authentik, Authelia, Keycloak, Pocket ID…), or your reverse proxy's forward auth, with email and group rules and admin/member roles. Or turn sign-in off behind a proxy that already does it. All set in the UI.
 - **Encrypted storage**: tokens and keys are sealed with AES-256-GCM and never sent back to the browser.
 - **Command palette**: `⌘K` (`Ctrl+K`) jumps to any session or page.
@@ -85,7 +86,7 @@ Open `http://<your-host>:3050` and create the local admin account. Everything el
 
 1. **Accounts → Models → Add account.** Pick *Claude subscription* and sign in in the terminal that opens: open the link, approve, paste the code back. (Or a token, an API key, a cloud provider, OpenAI or Google.)
 2. **Accounts → GitHub → Add a token**, for private repos and pushing. Public repos work without one.
-3. **New session**: pick the repo, optionally a branch to start from and a new branch to work on, a first message, the model and the permission mode. **Start session** opens its terminal.
+3. **New session**: pick the repo (or start without one), optionally a branch to start from and a new branch to work on, a first message, the model and the permission mode. **Start session** opens its terminal.
 
 The first start pulls the session image (`ghcr.io/vitafortis/orbital-session`), which takes a minute. To put it behind single sign-on or your reverse proxy's login, see [Sign-in](#sign-in).
 
@@ -189,6 +190,7 @@ They run in the session image with Codex CLI and Gemini CLI added: `ghcr.io/vita
 
 - **New session** applies the matching profile as soon as you pick the repo, or the one you choose. The fields stay editable.
 - **Linear rules** take *None* (the rule's own account and permissions), *Match the repo* (the matching profile, else the rule's own settings), or one profile.
+- A profile can also list **AWS profiles** for its repos' sessions (see [AWS](#aws)).
 
 ## GitHub
 
@@ -197,6 +199,24 @@ Add a **fine-grained token** with access to the repos you want (*Contents* and *
 **Sign in with GitHub** appears once **Settings → GitHub OAuth app** names an OAuth app of yours with *Enable Device Flow* checked (GitHub → Settings → Developer settings → OAuth Apps). No client secret or callback URL is needed.
 
 In a session, git and `gh` sign in as the session's GitHub account without further setup: `git clone`, `pull` and `push` (SSH remotes such as `git@github.com:…` go over https), `gh pr create` and the rest. The token sits in `/session/.orb` (`github-token`, and `gh/hosts.yml` for gh) and stays current while the session runs: pick another GitHub account in the session panel, or replace an expired token under **Accounts → GitHub**, and the next push uses it, with no restart.
+
+## AWS
+
+Sessions can work with AWS (the AWS CLI, SDKs, Terraform) through **IAM Identity Center** (AWS SSO), without your AWS sign-in ever entering a session. Only admins set this up, under **Accounts → AWS**:
+
+1. **Sign in to AWS SSO** with your access portal URL (`https://<you>.awsapps.com/start`) and its region. Orbital shows a code; confirm it on the AWS page, as with `aws sso login`. Orbital keeps the token, encrypted, and renews it within the session length your Identity Center allows; when that runs out, **Sign in again**.
+2. **Add a profile**: pick an account and a role (permission set) the sign-in has, and name it, e.g. `prod-readonly`. **Test** gets credentials the way a session would.
+3. **Give sessions profiles** on New session, in a session's panel, or on a repo profile (`acme/infra-*` gets `sandbox-admin`, say). A new session gets AWS access only from its repo's profile or by hand.
+
+What a session gets: for each of its profiles, that role's temporary credentials (an access key, secret and session token, valid for the role's session length, an hour by default), in `/session/.orb/aws/credentials` and `config`, with `AWS_SHARED_CREDENTIALS_FILE` and `AWS_CONFIG_FILE` pointing there. Each profile is a named profile (`aws --profile prod-readonly`, Terraform's `profile = "prod-readonly"`), and the first is also the default. Orbital renews them about ten minutes before they expire, rewrites them when the session's profiles change, and removes them when the session stops or the profile is deleted, all without a restart. A command that runs longer than the credentials last can fail partway through, since most tools read the keys once when they start.
+
+Keeping it safe:
+
+- The SSO token, which could get credentials for every account and role you have, stays in Orbital. A session can only use the roles it was given, and only until their keys expire.
+- An agent can do anything its role allows, so give sessions **read-only permission sets** by default, and a role that can change things only where you mean it to, ideally in a sandbox account.
+- Claude on **Bedrock** puts `AWS_REGION` (and its access keys, if it uses keys) in the session's environment, and the AWS CLI prefers those to the credentials file: in such sessions, use `--profile <name>`.
+
+Terraform isn't in the session image (its license); add it in your own image `FROM ghcr.io/vitafortis/orbital-session` (see [The session image](#the-session-image)).
 
 ## Linear
 
@@ -214,14 +234,24 @@ Issues that already had the label when you added the rule are skipped unless you
 - **Stop** removes the container; the repo, uncommitted changes and conversations stay. **Start** (or **Resume** in the overview) brings the session back with the current image and settings.
 - **Git identity**: commits use the GitHub account's name and noreply address, or `Claude <noreply@anthropic.com>` for sessions without a GitHub account.
 - **Conversations** in the session panel lists every saved conversation; **Resume** restarts Claude on that one.
-- **Attach from the host**: the session panel shows the container name and a copyable `docker exec -it -u node claude-<repo> tmux attach -t main`, for when you're on the server over SSH.
+- **Attach from the host**: the session panel shows the container name and a copyable `docker exec -it -u node orbital-<repo> tmux attach -t main`, for when you're on the server over SSH.
 - **Delete** stops the session and removes its repo clone, home folder and conversations. Pushed commits stay on GitHub.
 
 ### The session image
 
-`session/Dockerfile` builds on `node:24-trixie-slim` with Claude Code (npm, stable channel), git, gh, tmux, ripgrep, jq, python3 and build tools. With `--build-arg AGENTS="claude codex gemini"` it also installs Codex CLI and Gemini CLI; that build is published as `:latest-all`. Claude Code's auto-updater is off; the image is rebuilt weekly, and **Settings → Pull latest** fetches it (sessions use it from their next start).
+`session/Dockerfile` builds on `node:24-trixie-slim` with Claude Code (npm, stable channel), git, gh, the AWS CLI, tmux, ripgrep, jq, python3 and build tools. With `--build-arg AGENTS="claude codex gemini"` it also installs Codex CLI and Gemini CLI; that build is published as `:latest-all`. Claude Code's auto-updater is off; the image is rebuilt weekly, and **Settings → Pull latest** fetches it (sessions use it from their next start).
 
-To add languages or tools, build your own image `FROM ghcr.io/vitafortis/orbital-session` (or edit `session/Dockerfile` and use `compose.build.yaml`), and set it under **Settings → Session containers → Image**. Keep the `node` user (uid 1000) and the entrypoint.
+To add languages or tools, build your own image `FROM ghcr.io/vitafortis/orbital-session` (or edit `session/Dockerfile` and use `compose.build.yaml`), and set it under **Settings → Session containers → Image**. Keep the `node` user (uid 1000) and the entrypoint. For example, with Terraform:
+
+```dockerfile
+FROM ghcr.io/vitafortis/orbital-session:latest
+USER root
+ARG TERRAFORM_VERSION=1.17.1
+RUN arch=$(dpkg --print-architecture) \
+	&& curl -fsSL "https://releases.hashicorp.com/terraform/${TERRAFORM_VERSION}/terraform_${TERRAFORM_VERSION}_linux_${arch}.zip" -o /tmp/tf.zip \
+	&& unzip -q /tmp/tf.zip terraform -d /usr/local/bin && rm /tmp/tf.zip && terraform version
+USER node
+```
 
 Settings also take a Docker network for session containers (to reach other services on your homelab by name), memory and CPU limits, and extra environment variables for every session (`KEY=value` lines, e.g. a proxy or a private registry).
 
@@ -259,9 +289,9 @@ Orbital used to be called cc·modern (and briefly Orbit), with `cc-modern` image
        name: cc-modern-sessions
    ```
 
-3. **Switch images** to `ghcr.io/vitafortis/orbital` and `…/orbital-session`. A custom session image saved in Settings stays as it is; rebuild it `FROM ghcr.io/vitafortis/orbital-session` so it has the renamed `orb-*` scripts.
+3. **Switch images** to `ghcr.io/vitafortis/orbital` and `…/orbital-session`. If Settings names `ghcr.io/vitafortis/cc-modern-session`, sessions use `orbital-session` (same tag) on their own. A custom session image saved in Settings stays as it is; rebuild it `FROM ghcr.io/vitafortis/orbital-session` so it has the renamed `orb-*` scripts.
 
-`CCM_*` variables still work, but rename them to `ORB_*`. On start, Orbital takes over `cc-modern.db` (as `orbital.db`) and renames each session's `.ccm` folder to `.orb`; stored tokens stay readable, and the browser keeps its theme, pins and panel layout. Everyone is signed out once, since the cookie was renamed too.
+Session containers named `claude-<repo>` become `orbital-<repo>` the next time each session starts. `CCM_*` variables still work, but rename them to `ORB_*`. On start, Orbital takes over `cc-modern.db` (as `orbital.db`) and renames each session's `.ccm` folder to `.orb`; stored tokens stay readable, and the browser keeps its theme, pins and panel layout. Everyone is signed out once, since the cookie was renamed too.
 
 ## Development
 

@@ -9,6 +9,8 @@ import { ACCOUNT_KINDS, kindAgent } from '#lib/providers.ts';
 import type {
 	ModelAccount,
 	AccountKind,
+	AwsLogin,
+	AwsProfile,
 	GithubAccount,
 	LinearRef,
 	LinearRule,
@@ -195,6 +197,32 @@ function migrate(h: DatabaseSync) {
 	if (!userCols.has('source')) h.exec(`ALTER TABLE users ADD COLUMN source TEXT NOT NULL DEFAULT 'local'`);
 	const ruleCols = new Set((h.prepare(`SELECT name FROM pragma_table_info('linear_rules')`).all() as { name: string }[]).map((c) => c.name));
 	if (!ruleCols.has('profile_id')) h.exec('ALTER TABLE linear_rules ADD COLUMN profile_id TEXT');
+	add('aws_profiles', `TEXT NOT NULL DEFAULT '[]'`);
+	const profileCols = new Set((h.prepare(`SELECT name FROM pragma_table_info('profiles')`).all() as { name: string }[]).map((c) => c.name));
+	if (!profileCols.has('aws_profiles')) h.exec(`ALTER TABLE profiles ADD COLUMN aws_profiles TEXT NOT NULL DEFAULT '[]'`);
+	h.exec(`
+		CREATE TABLE IF NOT EXISTS aws_logins (
+			id TEXT PRIMARY KEY,
+			label TEXT,
+			start_url TEXT NOT NULL,
+			sso_region TEXT NOT NULL,
+			secret TEXT NOT NULL,
+			expires_at TEXT,
+			renewable INTEGER NOT NULL DEFAULT 0,
+			created_at TEXT NOT NULL
+		);
+
+		CREATE TABLE IF NOT EXISTS aws_profiles (
+			id TEXT PRIMARY KEY,
+			name TEXT NOT NULL UNIQUE,
+			login_id TEXT NOT NULL REFERENCES aws_logins(id) ON DELETE CASCADE,
+			account_id TEXT NOT NULL,
+			account_name TEXT,
+			role_name TEXT NOT NULL,
+			region TEXT NOT NULL,
+			created_at TEXT NOT NULL
+		);
+	`);
 }
 
 type Row = Record<string, unknown>;
@@ -229,8 +257,13 @@ export function defaultSettings(): Settings {
 	};
 }
 
+// Images saved in Settings before the rename to Orbital: the old names are no longer published,
+// and their scripts expect the CCM_ variables, so sessions on them would exit at once.
+const RENAMED_IMAGE = /^ghcr\.io\/vitafortis\/cc-modern-session(?=[:@]|$)/;
+
 export function getSettings(): Settings {
-	return { ...defaultSettings(), ...getKv<Partial<Settings>>('settings', {}) };
+	const s = { ...defaultSettings(), ...getKv<Partial<Settings>>('settings', {}) };
+	return { ...s, sessionImage: s.sessionImage.replace(RENAMED_IMAGE, 'ghcr.io/vitafortis/orbital-session'), agentsImage: s.agentsImage.replace(RENAMED_IMAGE, 'ghcr.io/vitafortis/orbital-session') };
 }
 
 export function saveSettings(settings: Settings) {
@@ -532,6 +565,7 @@ function toSession(r: Row): Session {
 		newBranch: (r.new_branch as string) ?? null,
 		accountId: r.claude_account_id as string,
 		githubAccountId: (r.github_account_id as string) ?? null,
+		awsProfileIds: JSON.parse((r.aws_profiles as string) || '[]'),
 		model: (r.model as string) ?? null,
 		permissionMode: r.permission_mode as PermissionMode,
 		remoteControl: !!r.remote_control,
@@ -583,8 +617,8 @@ export function createSession(
 		.prepare(
 			`INSERT INTO sessions (id, name, repo_url, repo_full_name, repo_dir, base_branch, new_branch, claude_account_id,
 				github_account_id, model, permission_mode, remote_control, status, created_at,
-				container_name, kind, skill, checkout_pr, linear_issue_id, linear_identifier, linear_url)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'stopped', ?, ?, ?, ?, ?, ?, ?, ?)`
+				container_name, kind, skill, checkout_pr, linear_issue_id, linear_identifier, linear_url, aws_profiles)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'stopped', ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 		)
 		.run(
 			id,
@@ -606,7 +640,8 @@ export function createSession(
 			input.checkoutPr,
 			input.linear?.issueId ?? null,
 			input.linear?.identifier ?? null,
-			input.linear?.url ?? null
+			input.linear?.url ?? null,
+			JSON.stringify(input.awsProfileIds ?? [])
 		);
 	return getSession(id)!;
 }
@@ -617,10 +652,14 @@ export function setSessionPr(id: string, pr: SessionPr | null) {
 		.run(pr?.number ?? null, pr?.url ?? null, pr?.state ?? null, id);
 }
 
+export function setSessionContainerName(id: string, name: string) {
+	db().prepare('UPDATE sessions SET container_name = ? WHERE id = ?').run(name, id);
+}
+
 /** Fields that can change after creation; they apply from the next launch. */
 export function updateSession(
 	id: string,
-	patch: Partial<Pick<Session, 'name' | 'model' | 'permissionMode' | 'remoteControl' | 'accountId' | 'githubAccountId'>>
+	patch: Partial<Pick<Session, 'name' | 'model' | 'permissionMode' | 'remoteControl' | 'accountId' | 'githubAccountId' | 'awsProfileIds'>>
 ) {
 	const cols: Record<string, string> = {
 		name: 'name',
@@ -628,13 +667,14 @@ export function updateSession(
 		permissionMode: 'permission_mode',
 		remoteControl: 'remote_control',
 		accountId: 'claude_account_id',
-		githubAccountId: 'github_account_id'
+		githubAccountId: 'github_account_id',
+		awsProfileIds: 'aws_profiles'
 	};
 	for (const [k, v] of Object.entries(patch)) {
 		if (v === undefined || !cols[k]) continue;
 		db()
 			.prepare(`UPDATE sessions SET ${cols[k]} = ? WHERE id = ?`)
-			.run(typeof v === 'boolean' ? (v ? 1 : 0) : (v as string | null), id);
+			.run(typeof v === 'boolean' ? (v ? 1 : 0) : Array.isArray(v) ? JSON.stringify(v) : (v as string | null), id);
 	}
 }
 
@@ -803,6 +843,7 @@ function toProfile(r: Row): Profile {
 		model: (r.model as string) ?? null,
 		permissionMode: r.permission_mode as PermissionMode,
 		repos: JSON.parse((r.repos as string) || '[]'),
+		awsProfileIds: JSON.parse((r.aws_profiles as string) || '[]'),
 		position: r.position as number
 	};
 }
@@ -822,15 +863,15 @@ export function createProfile(input: ProfileInput): Profile {
 	const id = randomUUID();
 	const position = ((db().prepare('SELECT MAX(position) AS p FROM profiles').get() as { p: number | null }).p ?? -1) + 1;
 	db()
-		.prepare('INSERT INTO profiles (id, name, account_id, model, permission_mode, repos, position, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-		.run(id, input.name, input.accountId, input.model, input.permissionMode, JSON.stringify(input.repos), position, now());
+		.prepare('INSERT INTO profiles (id, name, account_id, model, permission_mode, repos, aws_profiles, position, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+		.run(id, input.name, input.accountId, input.model, input.permissionMode, JSON.stringify(input.repos), JSON.stringify(input.awsProfileIds ?? []), position, now());
 	return getProfile(id)!;
 }
 
 export function updateProfile(id: string, input: ProfileInput) {
 	db()
-		.prepare('UPDATE profiles SET name = ?, account_id = ?, model = ?, permission_mode = ?, repos = ? WHERE id = ?')
-		.run(input.name, input.accountId, input.model, input.permissionMode, JSON.stringify(input.repos), id);
+		.prepare('UPDATE profiles SET name = ?, account_id = ?, model = ?, permission_mode = ?, repos = ?, aws_profiles = ? WHERE id = ?')
+		.run(input.name, input.accountId, input.model, input.permissionMode, JSON.stringify(input.repos), JSON.stringify(input.awsProfileIds ?? []), id);
 }
 
 /** Profiles are matched in this order: the first whose patterns match a repo wins. */
@@ -841,4 +882,117 @@ export function reorderProfiles(ids: string[]) {
 
 export function deleteProfile(id: string): boolean {
 	return db().prepare('DELETE FROM profiles WHERE id = ?').run(id).changes > 0;
+}
+
+// ── AWS sign-ins and profiles ──────────────────────────────────────────
+
+/** What Orbital keeps for an AWS sign-in, encrypted: its OIDC client and tokens. */
+export type AwsLoginSecret = {
+	clientId: string;
+	clientSecret: string;
+	clientExpiresAt: string | null;
+	accessToken: string;
+	refreshToken: string | null;
+};
+
+function toAwsLogin(r: Row): AwsLogin {
+	return {
+		id: r.id as string,
+		label: (r.label as string) ?? null,
+		startUrl: r.start_url as string,
+		ssoRegion: r.sso_region as string,
+		expiresAt: (r.expires_at as string) ?? null,
+		renewable: !!r.renewable,
+		createdAt: r.created_at as string
+	};
+}
+
+export function listAwsLogins(): AwsLogin[] {
+	return (db().prepare('SELECT * FROM aws_logins ORDER BY created_at').all() as Row[]).map(toAwsLogin);
+}
+
+export function getAwsLogin(id: string): AwsLogin | undefined {
+	const r = db().prepare('SELECT * FROM aws_logins WHERE id = ?').get(id) as Row | undefined;
+	return r ? toAwsLogin(r) : undefined;
+}
+
+export function getAwsLoginSecret(id: string): AwsLoginSecret | undefined {
+	const r = db().prepare('SELECT secret FROM aws_logins WHERE id = ?').get(id) as { secret: string } | undefined;
+	return r ? (JSON.parse(decrypt(r.secret, `aws:${id}`)) as AwsLoginSecret) : undefined;
+}
+
+/** Saves a sign-in; the same portal again (by start URL) refreshes the saved one. */
+export function saveAwsLogin(input: { label: string | null; startUrl: string; ssoRegion: string; expiresAt: string; secret: AwsLoginSecret }): AwsLogin {
+	const same = db().prepare('SELECT id FROM aws_logins WHERE start_url = ? AND sso_region = ?').get(input.startUrl, input.ssoRegion) as { id: string } | undefined;
+	const id = same?.id ?? randomUUID();
+	const secret = encrypt(JSON.stringify(input.secret), `aws:${id}`);
+	if (same) {
+		db()
+			.prepare('UPDATE aws_logins SET secret = ?, expires_at = ?, renewable = ?, label = COALESCE(?, label) WHERE id = ?')
+			.run(secret, input.expiresAt, input.secret.refreshToken ? 1 : 0, input.label, id);
+	} else {
+		db()
+			.prepare('INSERT INTO aws_logins (id, label, start_url, sso_region, secret, expires_at, renewable, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+			.run(id, input.label, input.startUrl, input.ssoRegion, secret, input.expiresAt, input.secret.refreshToken ? 1 : 0, now());
+	}
+	return getAwsLogin(id)!;
+}
+
+/** After a renewal: the new tokens and when they run out. */
+export function setAwsLoginTokens(id: string, secret: AwsLoginSecret, expiresAt: string) {
+	db()
+		.prepare('UPDATE aws_logins SET secret = ?, expires_at = ?, renewable = ? WHERE id = ?')
+		.run(encrypt(JSON.stringify(secret), `aws:${id}`), expiresAt, secret.refreshToken ? 1 : 0, id);
+}
+
+export function setAwsLoginLabel(id: string, label: string | null) {
+	db().prepare('UPDATE aws_logins SET label = ? WHERE id = ?').run(label || null, id);
+}
+
+/** Deletes the sign-in and, with it, its profiles. */
+export function deleteAwsLogin(id: string): boolean {
+	db().prepare('DELETE FROM aws_profiles WHERE login_id = ?').run(id);
+	return db().prepare('DELETE FROM aws_logins WHERE id = ?').run(id).changes > 0;
+}
+
+function toAwsProfile(r: Row): AwsProfile {
+	return {
+		id: r.id as string,
+		name: r.name as string,
+		loginId: r.login_id as string,
+		accountId: r.account_id as string,
+		accountName: (r.account_name as string) ?? null,
+		roleName: r.role_name as string,
+		region: r.region as string,
+		createdAt: r.created_at as string
+	};
+}
+
+export function listAwsProfiles(): AwsProfile[] {
+	return (db().prepare('SELECT * FROM aws_profiles ORDER BY name').all() as Row[]).map(toAwsProfile);
+}
+
+export function getAwsProfile(id: string): AwsProfile | undefined {
+	const r = db().prepare('SELECT * FROM aws_profiles WHERE id = ?').get(id) as Row | undefined;
+	return r ? toAwsProfile(r) : undefined;
+}
+
+export type AwsProfileInput = Omit<AwsProfile, 'id' | 'createdAt'>;
+
+export function createAwsProfile(input: AwsProfileInput): AwsProfile {
+	const id = randomUUID();
+	db()
+		.prepare('INSERT INTO aws_profiles (id, name, login_id, account_id, account_name, role_name, region, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+		.run(id, input.name, input.loginId, input.accountId, input.accountName, input.roleName, input.region, now());
+	return getAwsProfile(id)!;
+}
+
+export function updateAwsProfile(id: string, input: AwsProfileInput) {
+	db()
+		.prepare('UPDATE aws_profiles SET name = ?, login_id = ?, account_id = ?, account_name = ?, role_name = ?, region = ? WHERE id = ?')
+		.run(input.name, input.loginId, input.accountId, input.accountName, input.roleName, input.region, id);
+}
+
+export function deleteAwsProfile(id: string): boolean {
+	return db().prepare('DELETE FROM aws_profiles WHERE id = ?').run(id).changes > 0;
 }

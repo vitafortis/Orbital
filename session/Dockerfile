@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
-# The image every Orbital session runs in: Claude Code inside tmux, with git, gh and
-# the usual tools. One image is shared by all sessions; their repos, homes and agent
-# config live in the sessions volume, so containers are disposable.
+# The image every Orbital session runs in: Claude Code inside tmux, with git, gh, the AWS
+# CLI and the usual tools. One image is shared by all sessions; their repos, homes and
+# agent config live in the sessions volume, so containers are disposable.
 #
 # AGENTS="claude codex gemini" also installs OpenAI's Codex CLI and Google's Gemini CLI
 # (published as the :latest-all tag), for sessions on OpenAI or Google accounts.
@@ -30,6 +30,17 @@ RUN set -e; \
 	case " $AGENTS " in *" codex "*) pkgs="$pkgs @openai/codex@${CODEX_VERSION}" ;; esac; \
 	case " $AGENTS " in *" gemini "*) pkgs="$pkgs @google/gemini-cli@${GEMINI_CLI_VERSION}" ;; esac; \
 	if [ -n "$pkgs" ]; then npm install -g $pkgs && npm cache clean --force; fi
+
+# The AWS CLI (v2, the official build for this architecture), for sessions with AWS profiles.
+# Orbital writes their credentials as the standard files (AWS_SHARED_CREDENTIALS_FILE).
+ARG TARGETARCH
+RUN set -e; \
+	arch=$([ "$TARGETARCH" = arm64 ] && echo aarch64 || echo x86_64); \
+	curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-${arch}.zip" -o /tmp/awscli.zip; \
+	unzip -q /tmp/awscli.zip -d /tmp; \
+	/tmp/aws/install; \
+	rm -rf /tmp/aws /tmp/awscli.zip; \
+	aws --version
 
 COPY tmux.conf /etc/tmux.conf
 COPY gitconfig /etc/gitconfig

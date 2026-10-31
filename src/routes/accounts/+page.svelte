@@ -24,6 +24,8 @@
 		Trash2,
 		KeyRound
 	} from '@lucide/svelte';
+	import AwsAccounts from '#lib/components/AwsAccounts.svelte';
+	import AwsProfilePicker from '#lib/components/AwsProfilePicker.svelte';
 	import Dialog from '#lib/components/Dialog.svelte';
 	import GettingStarted from '#lib/components/GettingStarted.svelte';
 	import EmptyState from '#lib/components/EmptyState.svelte';
@@ -296,7 +298,7 @@
 
 	let profileOpen = $state(false);
 	let profileEditing = $state<Profile | null>(null);
-	let pf = $state({ name: '', accountId: '', model: '', permissionMode: 'default' as PermissionMode, repos: '' });
+	let pf = $state({ name: '', accountId: '', model: '', permissionMode: 'default' as PermissionMode, repos: '', awsProfileIds: [] as string[] });
 	let profileError = $state('');
 	let tryRepo = $state('');
 	const pfAgent = $derived(accountById.get(pf.accountId)?.agent ?? 'claude');
@@ -306,8 +308,8 @@
 	function openProfile(p?: Profile) {
 		profileEditing = p ?? null;
 		pf = p
-			? { name: p.name, accountId: p.accountId, model: p.model ?? '', permissionMode: p.permissionMode, repos: p.repos.join('\n') }
-			: { name: '', accountId: data.accounts[0]?.id ?? '', model: '', permissionMode: 'default', repos: '' };
+			? { name: p.name, accountId: p.accountId, model: p.model ?? '', permissionMode: p.permissionMode, repos: p.repos.join('\n'), awsProfileIds: p.awsProfileIds.filter((id) => data.awsProfiles.some((a) => a.id === id)) }
+			: { name: '', accountId: data.accounts[0]?.id ?? '', model: '', permissionMode: 'default', repos: '', awsProfileIds: [] };
 		profileError = '';
 		profileOpen = true;
 	}
@@ -553,6 +555,7 @@
 								</p>
 								<p class="truncate text-xs text-muted-foreground">
 									{acct?.name ?? 'Missing account'} · {p.model ? modelLabel(p.model) : 'default model'} · {PERMISSION_MODES.find((m) => m.value === p.permissionMode)?.label}
+									{#each data.awsProfiles.filter((a) => p.awsProfileIds.includes(a.id)) as a (a.id)} · <span class="font-mono">{a.name}</span>{/each}
 								</p>
 								<p class="mt-1 flex flex-wrap gap-1">
 									{#each p.repos as r (r)}<span class="badge font-mono">{r}</span>{:else}<span class="text-xs text-muted-foreground">No repos: only used when picked</span>{/each}
@@ -618,6 +621,8 @@
 				{/each}
 			</div>
 		</section>
+
+		<AwsAccounts logins={data.awsLogins} profiles={data.awsProfiles} admin={data.viewer?.admin ?? false} />
 	</div>
 </div>
 
@@ -778,6 +783,13 @@
 				</select>
 			</div>
 		</div>
+		{#if data.awsProfiles.length}
+			<div>
+				<span class="label flex items-center gap-1.5"><BrandIcon brand="bedrock" class="size-3.5" />AWS <span class="font-normal text-muted-foreground/70">(optional)</span></span>
+				<AwsProfilePicker profiles={data.awsProfiles} value={pf.awsProfileIds} onchange={(ids) => (pf.awsProfileIds = ids)} />
+				<p class="mt-1 text-xs text-muted-foreground">Sessions on these repos get these AWS credentials (New session shows them, and they can be changed there).</p>
+			</div>
+		{/if}
 		{#if profileError}<p class="text-xs text-danger">{profileError}</p>{/if}
 	</form>
 	{#snippet footer()}

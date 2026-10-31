@@ -41,7 +41,38 @@ export interface Profile {
 	permissionMode: PermissionMode;
 	/** owner/name patterns: "acme/*", "acme/api", "*". */
 	repos: string[];
+	/** AWS profiles sessions on these repos get. */
+	awsProfileIds: string[];
 	position: number;
+}
+
+/** A sign-in to AWS IAM Identity Center (SSO). Orbital keeps its token; sessions never see it. */
+export interface AwsLogin {
+	id: string;
+	label: string | null;
+	/** The AWS access portal URL, e.g. https://acme.awsapps.com/start. */
+	startUrl: string;
+	/** Where Identity Center runs, e.g. us-east-1. */
+	ssoRegion: string;
+	/** Until when Orbital can get credentials without signing in again. */
+	expiresAt: string | null;
+	/** Whether it can renew itself when that time comes. */
+	renewable: boolean;
+	createdAt: string;
+}
+
+/** One account and role through an AWS sign-in: what a session's credentials can do. */
+export interface AwsProfile {
+	id: string;
+	/** The profile name inside sessions (AWS_PROFILE, Terraform's profile), e.g. prod-readonly. */
+	name: string;
+	loginId: string;
+	accountId: string;
+	accountName: string | null;
+	roleName: string;
+	/** Default region for commands, e.g. eu-west-1. */
+	region: string;
+	createdAt: string;
 }
 
 export interface GithubAccount {
@@ -118,7 +149,7 @@ export interface LinearRef {
 export interface Session {
 	id: string;
 	name: string;
-	/** Docker container name: claude-<repo>, with -2, -3… for more sessions on one repo. */
+	/** Docker container name: orbital-<repo>, with -2, -3… for more sessions on one repo. */
 	containerName: string;
 	kind: SessionKind;
 	/** The skill or command it was started with, e.g. "/code-review 234". */
@@ -129,6 +160,7 @@ export interface Session {
 	agent: Agent;
 	pr: SessionPr | null;
 	linear: LinearRef | null;
+	/** Empty for a session started without a repo, in an empty folder. */
 	repoUrl: string;
 	/** owner/name for GitHub repos, null for other URLs. */
 	repoFullName: string | null;
@@ -138,6 +170,8 @@ export interface Session {
 	newBranch: string | null;
 	accountId: string;
 	githubAccountId: string | null;
+	/** AWS profiles whose short-lived credentials the session gets. */
+	awsProfileIds: string[];
 	model: string | null;
 	permissionMode: PermissionMode;
 	remoteControl: boolean;
@@ -162,6 +196,7 @@ export interface SessionInput {
 	newBranch: string | null;
 	accountId: string;
 	githubAccountId: string | null;
+	awsProfileIds: string[];
 	model: string | null;
 	permissionMode: PermissionMode;
 	remoteControl: boolean;
@@ -220,7 +255,17 @@ export interface SessionLive {
 	git: GitState | null;
 	/** An AI summary, if one was asked for. */
 	aiSummary: { text: string; at: string } | null;
+	/** The AWS credentials it was given. */
+	aws: SessionAws[];
 	at: string;
+}
+
+/** One AWS profile's credentials in a session: until when they're good, or why there are none. */
+export interface SessionAws {
+	profileId: string;
+	name: string;
+	expiresAt: string | null;
+	error: string | null;
 }
 
 export interface GithubPull {
@@ -313,6 +358,8 @@ export interface Settings {
 export interface Viewer {
 	email: string;
 	name: string | null;
+	/** Admins manage sign-in, users and AWS access. */
+	admin: boolean;
 }
 
 export type UserRole = 'admin' | 'member';

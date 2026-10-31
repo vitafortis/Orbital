@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { ArrowRight, ChevronDown, CircleAlert, GitBranch, ListTodo, LoaderCircle, Play, Send, Sparkles, CircleStop, Trash2, Wrench } from '@lucide/svelte';
+	import { repoLabel } from '#lib/launch.ts';
 	import StateBadge from './StateBadge.svelte';
 	import BrandIcon from './BrandIcon.svelte';
 	import SessionTags from './SessionTags.svelte';
@@ -55,7 +56,7 @@
 		<div class="min-w-0 flex-1">
 			<a href="/s/{s.id}" class="block truncate text-[0.9375rem] font-semibold tracking-tight hover:text-primary">{s.name}</a>
 			<p class="mt-0.5 flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
-				<span class="truncate">{s.repoFullName ?? s.repoUrl}</span>
+				<span class="truncate">{repoLabel(s)}</span>
 				{#if branch}<GitBranch class="size-3 shrink-0" /><span class="truncate font-mono text-[0.6875rem]">{branch}</span>{/if}
 			</p>
 			<div class="mt-1.5 empty:hidden"><SessionTags session={s} /></div>

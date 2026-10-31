@@ -17,7 +17,7 @@ Every screen of Orbital, from a test install with demo data: the conversations, 
 | | |
 | --- | --- |
 | ![New session](new.png) **New session** | ![Profile matched](new-profile.png) **A profile** picked the account, model and permissions for the repo |
-| ![Skill session](new-skill.png) **Run a skill** on a pull request | |
+| ![Skill session](new-skill.png) **Run a skill** on a pull request | ![Without a repo](new-norepo.png) **Without a repo**: an empty folder for a new project |
 
 ## Accounts and profiles
 

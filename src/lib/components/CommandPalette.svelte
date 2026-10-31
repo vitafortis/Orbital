@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
+	import { repoLabel } from '#lib/launch.ts';
 	import { CornerDownLeft, KeyRound, LayoutDashboard, Moon, Plus, Search, Settings, TerminalSquare, Wand, Workflow } from '@lucide/svelte';
 	import StateDot from './StateDot.svelte';
 	import { setTheme, theme, useSessions } from '#lib/client/state.svelte.ts';
@@ -20,7 +21,7 @@
 		...sortForOverview(shown.list, shown.live).map((s) => ({
 			id: `s:${s.id}`,
 			label: s.name,
-			hint: s.repoFullName ?? s.repoUrl,
+			hint: repoLabel(s),
 			state: displayState(s, shown.live[s.id]),
 			run: () => goto(`/s/${s.id}`)
 		})),

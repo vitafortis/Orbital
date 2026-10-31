@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { Play, Plus, Trash2, Wand } from '@lucide/svelte';
+	import { repoLabel } from '#lib/launch.ts';
 	import GettingStarted from '#lib/components/GettingStarted.svelte';
 	import PageHeader from '#lib/components/PageHeader.svelte';
 	import SessionCard from '#lib/components/SessionCard.svelte';
@@ -69,7 +70,7 @@
 							<a href="/s/{s.id}" class="min-w-0 flex-1">
 								<span class="block truncate text-[0.8125rem] font-medium hover:text-primary">{s.name}</span>
 								<span class="block truncate text-xs text-muted-foreground">
-									{s.repoFullName ?? s.repoUrl}{#if sum?.title} · {sum.title}{:else if sum?.lastPrompt} · {sum.lastPrompt}{/if}
+									{repoLabel(s)}{#if sum?.title} · {sum.title}{:else if sum?.lastPrompt} · {sum.lastPrompt}{/if}
 								</span>
 							</a>
 							<span class="hidden text-xs text-muted-foreground sm:block">{ago(sum?.updatedAt ?? s.stoppedAt)}</span>

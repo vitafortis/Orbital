@@ -34,7 +34,7 @@ jobs:
             description: Claude Code sessions in containers on your own hardware, with web terminals
           - name: orbital-session
             context: ./session
-            description: The Orbital session runtime - Claude Code, tmux, git and gh
+            description: The Orbital session runtime - Claude Code, tmux, git, gh and the AWS CLI
             agents: claude
           - name: orbital-session
             context: ./session

@@ -185,6 +185,7 @@ async function spawn(rule: LinearRule, issue: LinearIssue) {
 			newBranch: branch,
 			accountId,
 			githubAccountId: rule.githubAccountId,
+			awsProfileIds: profile?.awsProfileIds ?? [],
 			model: profile ? profile.model : rule.model,
 			permissionMode: profile?.permissionMode ?? rule.permissionMode,
 			remoteControl: getSettings().defaultRemoteControl,
