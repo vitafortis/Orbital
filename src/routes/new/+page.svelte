@@ -2,7 +2,7 @@
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import { onMount, tick, untrack } from 'svelte';
-	import { ChevronDown, CircleAlert, GitBranch, GitPullRequest, KeyRound, Layers, ListChecks, LoaderCircle, Radio, Rocket, SlidersHorizontal, Wand } from '@lucide/svelte';
+	import { ChevronDown, CircleAlert, FolderPlus, GitBranch, GitPullRequest, KeyRound, Layers, ListChecks, LoaderCircle, Radio, Rocket, SlidersHorizontal, Wand } from '@lucide/svelte';
 	import AgentBadge from '#lib/components/AgentBadge.svelte';
 	import BrandIcon from '#lib/components/BrandIcon.svelte';
 	import PageHeader from '#lib/components/PageHeader.svelte';
@@ -54,6 +54,15 @@
 	let remoteControl = $state(initial.settings.defaultRemoteControl);
 	let busy = $state(false);
 	let error = $state('');
+
+	// Or a new repo, created on GitHub when the session starts: under a token's user or one of its orgs.
+	let creating = $state(false);
+	const owners = $derived(data.githubAccounts.flatMap((a) => [a.login, ...a.orgs].map((o) => ({ key: `${a.id}/${o}`, accountId: a.id, owner: o, label: data.githubAccounts.length > 1 ? `${o} · ${githubLabel(a)}` : o }))));
+	let ownerKey = $state(untrack(() => (data.githubAccounts[0] ? `${data.githubAccounts[0].id}/${data.githubAccounts[0].login}` : '')));
+	let newRepo = $state('');
+	let newPrivate = $state(true);
+	const newOwner = $derived(owners.find((o) => o.key === ownerKey) ?? null);
+	const newRepoValid = $derived(/^[A-Za-z0-9._-]{1,100}$/.test(newRepo) && !/^\.+$/.test(newRepo));
 
 	const account = $derived(data.accounts.find((a) => a.id === accountId));
 	const agent = $derived(account?.agent ?? 'claude');
@@ -144,7 +153,8 @@
 	// Name follows the repo, branch, skill and PR until edited by hand.
 	$effect(() => {
 		if (nameTouched) return;
-		if (!parsed) name = '';
+		if (creating) name = newRepo;
+		else if (!parsed) name = '';
 		else if (mode === 'skill') name = `${parsed.dir} ${command.replace(/^\//, '')}${checkoutPr ? ` #${checkoutPr}` : ''}`;
 		else name = checkoutPr ? `${parsed.dir} #${checkoutPr}` : newBranch ? `${parsed.dir} · ${newBranch}` : parsed.dir;
 	});
@@ -262,23 +272,34 @@
 		busy = true;
 		error = '';
 		try {
+			let token = githubAccountId || null;
+			let full = parsed?.fullName ?? null;
+			const made = creating && !!newOwner;
+			if (made && newOwner) {
+				const r = await api.post<GithubRepo>('/api/github/repos', { githubAccountId: newOwner.accountId, owner: newOwner.owner, name: newRepo, private: newPrivate });
+				// From here it's an existing repo, so trying again doesn't create it twice.
+				creating = false;
+				repo = full = r.fullName;
+				picked = r;
+				token = newOwner.accountId;
+			}
 			const s = await api.post<Session>('/api/sessions', {
 				name: name || undefined,
 				kind: mode,
 				command: mode === 'skill' ? command : undefined,
 				args: mode === 'skill' ? args : undefined,
-				checkoutPr,
-				repo,
+				checkoutPr: made ? null : checkoutPr,
+				repo: full ?? repo,
 				accountId,
-				githubAccountId: githubAccountId || null,
-				baseBranch: checkoutPr ? null : baseBranch || null,
-				newBranch: newBranch || null,
+				githubAccountId: token,
+				baseBranch: checkoutPr || made ? null : baseBranch || null,
+				newBranch: made ? null : newBranch || null,
 				prompt: prompt || null,
 				model: model || null,
 				permissionMode,
 				remoteControl: rcAvailable && remoteControl
 			});
-			remember(parsed?.fullName ?? null);
+			remember(full);
 			upsertSession(s);
 			goto(`/s/${s.id}`);
 		} catch (err) {
@@ -322,7 +343,38 @@
 		{/if}
 
 		<section class="card space-y-3 p-4">
-			<h2 class="text-[0.9375rem] font-semibold tracking-tight">Repository</h2>
+			<div class="flex items-center justify-between gap-2">
+				<h2 class="text-[0.9375rem] font-semibold tracking-tight">Repository</h2>
+				{#if data.githubAccounts.length}
+					<div class="flex rounded-lg border border-border bg-background p-0.5 text-xs">
+						<button type="button" class="rounded-md px-2.5 py-1 {!creating ? 'bg-accent font-medium text-foreground' : 'text-muted-foreground'}" onclick={() => (creating = false)}>Existing</button>
+						<button type="button" class="flex items-center gap-1.5 rounded-md px-2.5 py-1 {creating ? 'bg-accent font-medium text-foreground' : 'text-muted-foreground'}" onclick={() => (creating = true)}><FolderPlus class="size-3.5" />New repo</button>
+					</div>
+				{/if}
+			</div>
+			{#if creating}
+				<div class="grid gap-3 sm:grid-cols-[minmax(0,14rem)_1fr]">
+					<div>
+						<label class="label" for="owner">Owner</label>
+						<select id="owner" class="input" bind:value={ownerKey}>
+							{#each owners as o (o.key)}<option value={o.key}>{o.label}</option>{/each}
+						</select>
+					</div>
+					<div>
+						<label class="label" for="newrepo">Name</label>
+						<input id="newrepo" class="input font-mono text-[0.8125rem]" placeholder="my-project" autocomplete="off" spellcheck="false" bind:value={newRepo} />
+						{#if newRepo && !newRepoValid}<p class="mt-1.5 text-xs text-danger">Letters, digits, ".", "-" and "_".</p>{/if}
+					</div>
+				</div>
+				<div class="flex items-center gap-3 rounded-lg border border-border bg-surface px-3 py-2.5">
+					<div class="min-w-0 flex-1 text-[0.8125rem]">
+						<p class="font-medium">Private</p>
+						<p class="text-xs text-muted-foreground">{newPrivate ? 'Only you and people you add can see it.' : 'Anyone can see it.'}</p>
+					</div>
+					<Switch checked={newPrivate} label="Private" onchange={(v) => (newPrivate = v)} />
+				</div>
+				<p class="text-xs text-muted-foreground">Created on GitHub{newOwner ? ` as ${newOwner.owner}/${newRepo || '…'}` : ''} when the session starts, with a README as its first commit. {agentName} works on its default branch.</p>
+			{:else}
 			<div>
 				<RepoPicker logins={[...new Set(data.githubAccounts.map((a) => a.login))]} bind:value={repo} onpick={(r) => (picked = r)} />
 				{#if repo && !parsed}<p class="mt-1.5 text-xs text-danger">Enter owner/name, or an https git URL.</p>{/if}
@@ -420,6 +472,7 @@
 					</div>
 				</div>
 			</div>
+			{/if}
 		</section>
 
 		<section class="card space-y-3 p-4">
@@ -554,7 +607,7 @@
 		{#if error}<p class="rounded-lg bg-danger/10 px-3 py-2 text-[0.8125rem] text-danger">{error}</p>{/if}
 		<div class="flex items-center justify-end gap-2">
 			<a href="/" class="btn btn-ghost">Cancel</a>
-			<button class="btn btn-primary" disabled={busy || !parsed || !accountId || (mode === 'skill' && (!command.startsWith('/') || agent !== 'claude'))}>
+			<button class="btn btn-primary" disabled={busy || !(creating ? newOwner && newRepoValid : parsed) || !accountId || (mode === 'skill' && (!command.startsWith('/') || agent !== 'claude'))}>
 				{#if busy}<LoaderCircle class="animate-spin" />{:else}<Rocket />{/if}{mode === 'skill' ? 'Run skill' : 'Start session'}
 			</button>
 		</div>
