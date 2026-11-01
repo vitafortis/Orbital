@@ -1,7 +1,6 @@
 <script lang="ts">
 	import '../app.css';
 	import { repoLabel } from '#lib/launch.ts';
-	import favicon from '#lib/assets/favicon.svg';
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
 	import { onMount } from 'svelte';
@@ -30,7 +29,7 @@
 	import StateDot from '#lib/components/StateDot.svelte';
 	import { api } from '#lib/client/api.ts';
 	import { connectLive, provideSessions, session, sessions, setTheme, theme } from '#lib/client/state.svelte.ts';
-	import { displayState, glowClass, sortForOverview, STATE_META, type DisplayState } from '#lib/session-state.ts';
+	import { displayState, glowClass, sortByRecency, STATE_META, type DisplayState } from '#lib/session-state.ts';
 	import { ago } from '#lib/client/format.ts';
 	import type { LayoutProps } from './$types';
 
@@ -88,7 +87,7 @@
 		} catch {}
 	}
 	const ordered = $derived.by(() => {
-		const all = sortForOverview(shown.list, shown.live);
+		const all = sortByRecency(shown.list, shown.live);
 		return [...all.filter((s) => pinned.includes(s.id)), ...all.filter((s) => !pinned.includes(s.id))];
 	});
 
@@ -126,7 +125,6 @@
 </script>
 
 <svelte:head>
-	<link rel="icon" href={favicon} />
 	<title>Orbital</title>
 </svelte:head>
 

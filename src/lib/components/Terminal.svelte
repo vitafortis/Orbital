@@ -2,13 +2,15 @@
 	import { onMount } from 'svelte';
 	import '@xterm/xterm/css/xterm.css';
 	import { LoaderCircle, Unplug } from '@lucide/svelte';
-	import { copyText } from '#lib/client/clipboard.ts';
+	import { copyText, writeClipboard } from '#lib/client/clipboard.ts';
+	import { toast } from '#lib/client/state.svelte.ts';
 
 	let {
 		path,
 		autofocus = false,
 		onstate,
-		onscreen
+		onscreen,
+		turns = false
 	}: {
 		/** The WebSocket path, e.g. /ws/sessions/<id>/terminal?mode=claude. */
 		path: string;
@@ -17,6 +19,8 @@
 		onstate?: (state: 'connecting' | 'open' | 'closed') => void;
 		/** The visible lines as text, shortly after the screen changes. */
 		onscreen?: (lines: string[]) => void;
+		/** Whether the terminal is the agent's tmux, where jumpTo moves between turns. */
+		turns?: boolean;
 	} = $props();
 
 	let host: HTMLDivElement;
@@ -60,6 +64,7 @@
 	let send: (data: string) => void = () => {};
 	let forget = () => {};
 	let focusTerm: () => void = () => {};
+	let jump: (to: 'previous' | 'next' | 'latest') => void = () => {};
 
 	/** Types into the terminal as if from the keyboard. */
 	export function input(data: string) {
@@ -69,6 +74,11 @@
 
 	export function focus() {
 		focusTerm();
+	}
+
+	/** Scrolls tmux's history to the previous or next prompt you sent, or back to now. */
+	export function jumpTo(to: 'previous' | 'next' | 'latest') {
+		if (turns) jump(to);
 	}
 
 	/** Whether keystrokes reach the container right now. */
@@ -119,15 +129,30 @@
 			fit.fit();
 			focusTerm = () => term.focus();
 
-			// Copy from tmux / Claude Code arrives as OSC 52.
+			// Copy from tmux / Claude Code arrives as OSC 52, a moment after the mouse is released.
+			// Browsers often refuse the clipboard by then, so the text is kept for a right-click,
+			// which they allow.
+			let selected = '';
 			term.parser.registerOscHandler(52, (data) => {
 				const b64 = data.split(';').pop() ?? '';
 				try {
 					const text = new TextDecoder().decode(Uint8Array.from(atob(b64), (c) => c.charCodeAt(0)));
-					if (text) void copyText(text, 'Copied from the terminal');
+					if (!text) return true;
+					selected = text;
+					void writeClipboard(text).then((ok) =>
+						ok ? toast('success', 'Copied from the terminal') : toast('info', 'Selected', 'Right-click the terminal to copy it')
+					);
 				} catch {}
 				return true;
 			});
+			// A Shift-selection is the browser's own, and its menu copies it.
+			const onContextMenu = (e: MouseEvent) => {
+				if (term.hasSelection() || !selected) return;
+				e.preventDefault();
+				e.stopPropagation();
+				void copyText(selected, 'Copied from the terminal');
+			};
+			host.addEventListener('contextmenu', onContextMenu, true);
 
 			if (new URLSearchParams(location.search).get('debug') === 'input' && term.textarea) {
 				inputLog = [`${navigator.userAgent} · ${term.cols}x${term.rows}`];
@@ -228,6 +253,26 @@
 			};
 			term.onData((d) => send(d));
 			term.onBinary((d) => send(d));
+
+			// Keys tmux knows as User0 and User1, bound to the jumps (upgrade.ts).
+			jump = (to) => {
+				if (to === 'latest') {
+					inHistory = false;
+					rest = 0;
+					raw('\x1b[<73;1;1M');
+				} else {
+					if (to === 'previous') inHistory = true;
+					raw(to === 'previous' ? '\x1b[9900~' : '\x1b[9901~');
+				}
+				focusTerm();
+			};
+			// Ctrl+Shift+Up and Down (or with Cmd) jump between turns.
+			term.attachCustomKeyEventHandler((e) => {
+				if (!turns || e.type !== 'keydown' || !e.shiftKey || !(e.ctrlKey || e.metaKey) || (e.key !== 'ArrowUp' && e.key !== 'ArrowDown')) return true;
+				e.preventDefault();
+				jump(e.key === 'ArrowUp' ? 'previous' : 'next');
+				return false;
+			});
 
 			// Android keyboards report every key as 229 and edit xterm's hidden textarea directly:
 			// composing words, autocorrecting, and re-editing earlier words, e.g. after the layout
@@ -379,6 +424,7 @@
 				host.removeEventListener('touchmove', onTouchMove, true);
 				host.removeEventListener('touchend', onTouchEnd, true);
 				host.removeEventListener('touchcancel', onTouchEnd, true);
+				host.removeEventListener('contextmenu', onContextMenu, true);
 				ro.disconnect();
 				offAndroid();
 				ws?.close();

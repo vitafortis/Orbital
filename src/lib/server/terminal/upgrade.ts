@@ -13,7 +13,7 @@ import type { IncomingMessage } from 'node:http';
 import type { Duplex } from 'node:stream';
 import { WebSocketServer, type WebSocket } from 'ws';
 import { authenticateToken, sessionTokenFromHeader } from '../auth.ts';
-import { execTty } from '../docker.ts';
+import { exec, execTty } from '../docker.ts';
 import { loginContainer } from '../accounts.ts';
 import { runningContainer, workdir } from '../sessions/runtime.ts';
 
@@ -42,13 +42,61 @@ const clamp = (v: string | null, lo: number, hi: number, d: number) => {
 	return Number.isFinite(n) && n > 0 ? Math.min(hi, Math.max(lo, Math.round(n))) : d;
 };
 
-type Target = { container: string; cmd: string[]; workdir?: string };
+type Target = { container: string; cmd: string[]; workdir?: string; tmux?: boolean };
+
+/**
+ * Docker doesn't end an exec when its connection closes, so a viewer that went away (a tab
+ * closed, a phone asleep) would leave its `tmux attach` running. Enough of those and the
+ * tmux server runs out of file descriptors: new viewers get "open terminal failed: not a
+ * terminal" and the live view can't read the pane. Our viewers' clients are marked with
+ * VIEWER and announce their tty first; any marked client whose tty no open socket holds is
+ * ended, when a viewer leaves and before one attaches. A `tmux attach` a person runs by
+ * hand (the panel's command) isn't marked, so it's left alone.
+ */
+const VIEWER = 'ORB_VIEWER=1';
+const RS = 0x1e;
+const viewers = new Map<string, { ttys: Set<string>; opening: number; again: boolean }>();
+
+// Clients from before the mark: Orbital's attach, with and without its wheel bindings.
+const SWEEP = `for p in /proc/[0-9]*; do
+	case "$(tr '\\0' ' ' < "$p/cmdline" 2>/dev/null)" in
+		'tmux attach-session -t main ' | 'tmux bind -T copy-mode WheelUpPane '*' attach-session -t main ') ;;
+		*) grep -qxz '${VIEWER}' "$p/environ" 2>/dev/null || continue ;;
+	esac
+	t=$(readlink "$p/fd/0" 2>/dev/null) || continue
+	case " $* " in *" $t "*) ;; *) kill "\${p#/proc/}" 2>/dev/null ;; esac
+done`;
+
+function viewersOf(container: string) {
+	let v = viewers.get(container);
+	if (!v) viewers.set(container, (v = { ttys: new Set(), opening: 0, again: false }));
+	return v;
+}
+
+/** Ends this container's viewer clients that no open socket holds. */
+async function sweep(container: string) {
+	const v = viewersOf(container);
+	// A client that's starting hasn't told us its tty yet: sweep once it has.
+	if (v.opening) {
+		v.again = true;
+		return;
+	}
+	await exec(container, ['bash', '-c', SWEEP, 'sweep', ...v.ttys], { user: 'node', timeoutMs: 10_000 }).catch(() => {});
+}
+
+// A prompt in Claude Code's history: "❯ text" (older versions "> text"). The input box has
+// a no-break space after its ❯, so it doesn't match.
+const PROMPT = `'^(❯|>) [^ ]'`;
+const PREVIOUS = `send -X start-of-line ; send -X search-backward ${PROMPT} ; send -X scroll-top`;
+const NEXT = `send -X cursor-down ; send -X search-forward ${PROMPT} ; send -X scroll-top`;
 
 /**
  * Attaches to the agent's tmux, first binding the wheel in tmux's history view to one line
  * per report (the browser sends one per line it scrolls; tmux's default is five) and
  * Meta+wheel-down to leaving it, which the browser sends before keys typed while scrolled
- * back. Set here rather than in tmux.conf so sessions on an older image get them too.
+ * back. Right-click does nothing in tmux, so the page can copy tmux's selection with it
+ * (Terminal.svelte) without tmux's menu opening too. Set here rather than in tmux.conf so
+ * sessions on an older image get them too.
  */
 const ATTACH = [
 	'tmux',
@@ -57,6 +105,12 @@ const ATTACH = [
 		...['bind', '-T', t, 'WheelDownPane', 'send', '-X', '-N', '1', 'scroll-down', ';'],
 		...['bind', '-T', t, 'M-WheelDownPane', 'send', '-X', 'cancel', ';']
 	]),
+	...['unbind', '-n', 'MouseDown3Pane', ';'],
+	// Two keys of Orbital's own (Terminal.svelte jumpTo) move between the prompts you sent:
+	// back from the screen into the history, then back or forward in it, each to the top.
+	...['set', '-s', 'user-keys[0]', '\x1b[9900~', ';', 'set', '-s', 'user-keys[1]', '\x1b[9901~', ';', 'set', '-g', 'wrap-search', 'off', ';'],
+	...['bind', '-n', 'User0', `copy-mode -e ; ${PREVIOUS}`, ';'],
+	...['copy-mode', 'copy-mode-vi'].flatMap((t) => [...['bind', '-T', t, 'User0', PREVIOUS, ';'], ...['bind', '-T', t, 'User1', NEXT, ';']]),
 	'attach-session',
 	'-t',
 	'main'
@@ -67,13 +121,13 @@ async function resolveTarget(path: string, params: URLSearchParams): Promise<Tar
 	if (m) {
 		const { session, container } = await runningContainer(m[1]);
 		const shell = params.get('mode') === 'shell';
-		return { container, workdir: workdir(session), cmd: shell ? ['bash', '-l'] : ATTACH };
+		return { container, workdir: workdir(session), cmd: shell ? ['bash', '-l'] : ATTACH, tmux: !shell };
 	}
 	m = /^\/ws\/accounts\/([0-9a-f-]{36})\/login$/.exec(path);
 	if (m) {
 		const container = await loginContainer(m[1]);
 		if (!container) throw new Error('The sign-in container is not running');
-		return { container, cmd: ATTACH };
+		return { container, cmd: ATTACH, tmux: true };
 	}
 	throw new Error('Not found');
 }
@@ -98,17 +152,56 @@ export async function handleUpgrade(req: IncomingMessage, socket: Duplex, head: 
 }
 
 async function bridge(ws: WebSocket, target: Target, cols: number, rows: number) {
+	const v = target.tmux ? viewersOf(target.container) : null;
 	let tty: Awaited<ReturnType<typeof execTty>>;
 	try {
-		tty = await execTty(target.container, target.cmd, { user: 'node', env: ENV, workdir: target.workdir, cols, rows });
+		if (v) {
+			await sweep(target.container);
+			v.opening++;
+		}
+		// tmux: print the client's tty between two RS bytes, then become the client.
+		const cmd = v ? ['bash', '-c', `printf '\\036%s\\036' "$(tty)"; exec "$@"`, 'attach', ...target.cmd] : target.cmd;
+		tty = await execTty(target.container, cmd, { user: 'node', env: v ? [...ENV, VIEWER] : ENV, workdir: target.workdir, cols, rows });
 	} catch (err) {
+		if (v) v.opening--;
 		ws.close(1011, (err instanceof Error ? err.message : 'exec failed').slice(0, 120));
 		return;
 	}
 	const { stream, resize } = tty;
 	void resize(cols, rows);
 
+	let client: string | null = null;
+	let head: Buffer | null = v ? Buffer.alloc(0) : null;
+	const opened = () => {
+		if (!v || head === null) return;
+		head = null;
+		v.opening--;
+		if (client) v.ttys.add(client);
+		if (!v.opening && v.again) {
+			v.again = false;
+			void sweep(target.container);
+		}
+	};
+	const leave = () => {
+		opened();
+		if (!v) return;
+		if (client) v.ttys.delete(client);
+		client = null;
+		void sweep(target.container);
+	};
+
 	stream.on('data', (chunk: Buffer) => {
+		if (head) {
+			// Hold output back until the tty announcement has gone by.
+			head = Buffer.concat([head, chunk]);
+			const a = head.indexOf(RS);
+			const b = a === -1 ? -1 : head.indexOf(RS, a + 1);
+			if (b === -1 && head.length < 256) return;
+			if (b !== -1) client = head.subarray(a + 1, b).toString().trim() || null;
+			chunk = b === -1 ? head : head.subarray(b + 1);
+			opened();
+			if (!chunk.length) return;
+		}
 		if (ws.readyState !== ws.OPEN) return;
 		ws.send(chunk, { binary: true });
 		// A slow browser shouldn't make us buffer a whole build log in memory.
@@ -123,11 +216,15 @@ async function bridge(ws: WebSocket, target: Target, cols: number, rows: number)
 		}
 	});
 	const end = () => {
+		// Whatever came before the announcement (an error, say) still reaches the browser.
+		if (head?.length && ws.readyState === ws.OPEN) ws.send(head, { binary: true });
+		opened();
 		if (ws.readyState === ws.OPEN) ws.close(1000, 'ended');
 	};
 	stream.on('end', end);
 	stream.on('close', end);
 	stream.on('error', end);
+	stream.once('close', leave);
 
 	ws.on('message', (data, isBinary) => {
 		if (isBinary) {
@@ -145,7 +242,7 @@ async function bridge(ws: WebSocket, target: Target, cols: number, rows: number)
 		// The browser's heartbeat: an empty frame back tells it the line is still up.
 		else if (msg.t === 'p') ws.send(Buffer.alloc(0), { binary: true });
 	});
-	// Closing the exec detaches this tmux client; Claude keeps running.
+	// Closing the exec doesn't end the tmux client (see VIEWER): the sweep does. Claude keeps running.
 	ws.on('close', () => stream.destroy());
 	ws.on('error', () => stream.destroy());
 }

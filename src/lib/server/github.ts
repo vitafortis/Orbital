@@ -13,11 +13,14 @@ import { refreshGithubCredentials } from './sessions/github.ts';
 const API = 'https://api.github.com';
 
 /** A GitHub REST call, with the account's token or anonymously (public repos). */
-async function ghFetch(token: string | undefined, path: string): Promise<Response> {
+async function ghFetch(token: string | undefined, path: string, init: { method?: string; body?: unknown } = {}): Promise<Response> {
 	return fetch(`${API}${path}`, {
+		method: init.method,
+		body: init.body === undefined ? undefined : JSON.stringify(init.body),
 		headers: {
 			accept: 'application/vnd.github+json',
 			...(token ? { authorization: `Bearer ${token}` } : {}),
+			...(init.body === undefined ? {} : { 'content-type': 'application/json' }),
 			'x-github-api-version': '2022-11-28',
 			'user-agent': 'orbital'
 		},
@@ -132,6 +135,33 @@ export async function ownerRepos(account: GithubAccount, owner: string): Promise
 		if (data.length < 100) break;
 	}
 	return repos;
+}
+
+/**
+ * Creates a repository for a new session, under the token's user or one of its organizations,
+ * with a first commit (a README) so there's a default branch to clone and branch from.
+ */
+export async function createRepo(account: GithubAccount, opts: { owner: string; name: string; private: boolean; description?: string | null }): Promise<GithubRepo> {
+	if (!/^[A-Za-z0-9-]+$/.test(opts.owner)) throw new BadRequest('Invalid owner');
+	if (!/^[A-Za-z0-9._-]{1,100}$/.test(opts.name) || /^\.+$/.test(opts.name)) throw new BadRequest('A repo name is letters, digits, ".", "-" and "_"');
+	const token = getGithubToken(account.id);
+	const mine = opts.owner.toLowerCase() === account.login.toLowerCase();
+	const res = await ghFetch(token, mine ? '/user/repos' : `/orgs/${opts.owner}/repos`, {
+		method: 'POST',
+		body: { name: opts.name, private: opts.private, description: opts.description || undefined, auto_init: true }
+	});
+	if (!res.ok) {
+		const b = (await res.json().catch(() => ({}))) as { message?: string; errors?: { message?: string }[] };
+		const why = b.errors?.map((e) => e.message).find(Boolean) ?? b.message ?? res.statusText;
+		const hint =
+			res.status === 403 || res.status === 404
+				? ' A classic token needs the repo scope; a fine-grained one needs Administration (read and write) on the owner, and creating in an organization needs its permission to create repos.'
+				: '';
+		throw new BadRequest(`GitHub couldn't create ${opts.owner}/${opts.name}: ${why}.${hint}`);
+	}
+	const repo = toRepo((await res.json()) as GhRepo);
+	repoCache.delete(account.id);
+	return repo;
 }
 
 /**
