@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import '@xterm/xterm/css/xterm.css';
-	import { LoaderCircle, Unplug } from '@lucide/svelte';
+	import { LoaderCircle, Paperclip, Unplug } from '@lucide/svelte';
 	import { copyText, writeClipboard } from '#lib/client/clipboard.ts';
 	import { toast } from '#lib/client/state.svelte.ts';
 
@@ -10,6 +10,7 @@
 		autofocus = false,
 		onstate,
 		onscreen,
+		onfiles,
 		turns = false
 	}: {
 		/** The WebSocket path, e.g. /ws/sessions/<id>/terminal?mode=claude. */
@@ -21,7 +22,33 @@
 		onscreen?: (lines: string[]) => void;
 		/** Whether the terminal is the agent's tmux, where jumpTo moves between turns. */
 		turns?: boolean;
+		/** Files pasted or dropped onto the terminal; without it, they're left to the browser. */
+		onfiles?: (files: File[]) => void;
 	} = $props();
+
+	// Files pasted (a screenshot on the clipboard) or dropped: taken before xterm, which only
+	// knows text. A plain text paste still goes to xterm.
+	let dropping = $state(false);
+	const hasFiles = (e: DragEvent) => !!e.dataTransfer?.types.includes('Files');
+	function onpaste(e: ClipboardEvent) {
+		const files = [...(e.clipboardData?.files ?? [])];
+		if (!onfiles || !files.length) return;
+		e.preventDefault();
+		e.stopPropagation();
+		onfiles(files);
+	}
+	function ondragover(e: DragEvent) {
+		if (!onfiles || !hasFiles(e)) return;
+		e.preventDefault();
+		dropping = true;
+	}
+	function ondrop(e: DragEvent) {
+		dropping = false;
+		const files = [...(e.dataTransfer?.files ?? [])];
+		if (!onfiles || !files.length) return;
+		e.preventDefault();
+		onfiles(files);
+	}
 
 	let host: HTMLDivElement;
 	let conn = $state<'connecting' | 'open' | 'closed'>('connecting');
@@ -64,6 +91,7 @@
 	let send: (data: string) => void = () => {};
 	let forget = () => {};
 	let focusTerm: () => void = () => {};
+	let pasteText: (text: string) => void = () => {};
 	let jump: (to: 'previous' | 'next' | 'latest') => void = () => {};
 
 	/** Types into the terminal as if from the keyboard. */
@@ -74,6 +102,12 @@
 
 	export function focus() {
 		focusTerm();
+	}
+
+	/** Pastes text as the clipboard would (bracketed, when the program asks for that). */
+	export function paste(text: string) {
+		forget();
+		pasteText(text);
 	}
 
 	/** Scrolls tmux's history to the previous or next prompt you sent, or back to now. */
@@ -128,6 +162,7 @@
 			await document.fonts?.ready;
 			fit.fit();
 			focusTerm = () => term.focus();
+			pasteText = (text) => term.paste(text);
 
 			// Copy from tmux / Claude Code arrives as OSC 52, a moment after the mouse is released.
 			// Browsers often refuse the clipboard by then, so the text is kept for a right-click,
@@ -440,7 +475,15 @@
 	});
 </script>
 
-<div class="relative h-full min-h-0 w-full overflow-hidden bg-term" style="background: var(--term-bg)">
+<div
+	class="relative h-full min-h-0 w-full overflow-hidden bg-term"
+	style="background: var(--term-bg)"
+	role="presentation"
+	onpastecapture={onpaste}
+	{ondragover}
+	ondragleave={(e) => !(e.currentTarget as Node).contains(e.relatedTarget as Node) && (dropping = false)}
+	{ondrop}
+>
 	<!-- Padding sits outside the host: the fit addon sizes rows from the host's own box. -->
 	<!-- Dimmed while keystrokes can't reach the container. -->
 	<div class="absolute inset-0 py-1.5 pl-2 transition-opacity duration-300 {conn === 'closed' ? 'opacity-45' : ''}">
@@ -453,6 +496,11 @@
 			onpointerdown={(e) => e.preventDefault()}
 			onclick={() => copyText(inputLog!.join('\n'), 'Input log copied')}>Copy input log · {inputLog.length}</button
 		>
+	{/if}
+	{#if dropping}
+		<div class="pointer-events-none absolute inset-2 z-20 flex items-center justify-center rounded-xl border-2 border-dashed border-primary/70 bg-black/50 text-sm text-[#e6e8ee]">
+			<span class="flex items-center gap-2"><Paperclip class="size-4" />Drop to attach</span>
+		</div>
 	{/if}
 	{#if conn !== 'open'}
 		<div class="pointer-events-none absolute inset-x-0 top-3 flex justify-center">
