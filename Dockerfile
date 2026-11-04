@@ -21,6 +21,8 @@ ENV NODE_ENV=production \
     ORB_SESSIONS_DIR=/sessions \
     NODE_OPTIONS=--disable-warning=ExperimentalWarning \
     ORB_RUN_AS=node
+# Attachments are up to 25 MB; adapter-node allows 512 KB by default.
+ENV BODY_SIZE_LIMIT=26M
 COPY --from=build /app/build ./build
 COPY --from=build /app/node_modules ./node_modules
 COPY package.json server.js ./

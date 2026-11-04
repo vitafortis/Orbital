@@ -63,3 +63,26 @@ export async function deleteSession(s: Pick<Session, 'id' | 'name' | 'repoDir' |
 		toast('error', `Couldn't delete ${s.name}`, errorMessage(err));
 	}
 }
+
+/**
+ * Uploads files into the session and returns their paths in the container, for the agent to
+ * read. One request per file, the raw bytes as the body; a file that fails is left out.
+ */
+export async function attachFiles(s: Pick<Session, 'id'>, files: File[]): Promise<string[]> {
+	const paths: string[] = [];
+	for (const f of files) {
+		try {
+			const res = await fetch(`/api/sessions/${s.id}/attachments`, {
+				method: 'POST',
+				headers: { 'content-type': 'application/octet-stream', 'x-filename': encodeURIComponent(f.name || 'file') },
+				body: f
+			});
+			const data = await res.json().catch(() => ({}));
+			if (!res.ok) throw new Error(data.message ?? res.statusText);
+			paths.push(data.path);
+		} catch (err) {
+			toast('error', `Couldn't attach ${f.name || 'the file'}`, errorMessage(err));
+		}
+	}
+	return paths;
+}

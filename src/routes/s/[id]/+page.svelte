@@ -17,6 +17,7 @@
 		ListTodo,
 		LoaderCircle,
 		MoreHorizontal,
+		Paperclip,
 		PanelRightClose,
 		PanelRightOpen,
 		Pencil,
@@ -44,7 +45,7 @@
 	import { api, errorMessage } from '#lib/client/api.ts';
 	import { copyText } from '#lib/client/clipboard.ts';
 	import { ago, githubLabel } from '#lib/client/format.ts';
-	import { deleteSession, relaunchAgent, sendToSession, startSession, stopSession, type Launch } from '#lib/client/sessions.ts';
+	import { attachFiles, deleteSession, relaunchAgent, sendToSession, startSession, stopSession, type Launch } from '#lib/client/sessions.ts';
 	import QuestionBar from '#lib/components/QuestionBar.svelte';
 	import ModelPicker from '#lib/components/ModelPicker.svelte';
 	import PanelSection from '#lib/components/PanelSection.svelte';
@@ -114,6 +115,23 @@
 		else void sendToSession(s, { keys: [key] });
 		term?.focus();
 	}
+	// Attachments: files uploaded into the session, their paths pasted into the prompt for the
+	// agent to read. From a paste or drop on the terminal, or the paperclip (a phone's photos).
+	let attaching = $state(false);
+	let picker = $state<HTMLInputElement>();
+	async function attach(files: File[]) {
+		if (!files.length || attaching) return;
+		attaching = true;
+		const paths = await attachFiles(s, files);
+		attaching = false;
+		if (!paths.length) return;
+		const text = `${paths.join(' ')} `;
+		if (term?.isOpen()) term.paste(text);
+		else await sendToSession(s, { text });
+		toast('success', paths.length === 1 ? 'Attached' : `Attached ${paths.length} files`, `${paths.length === 1 ? 'Its path is' : 'Their paths are'} in the prompt: add your message and press Enter.`);
+		term?.focus();
+	}
+
 	// The terminal's connection to the container, shown in the header.
 	let conn = $state<'connecting' | 'open' | 'closed'>('connecting');
 	const CONN = {
@@ -332,6 +350,12 @@
 				<button class="flex items-center gap-1.5 rounded-md px-2.5 py-1 {mode === 'shell' ? 'bg-accent font-medium text-foreground' : 'text-muted-foreground'}" onclick={() => (mode = 'shell')}><SquareTerminal class="size-3.5" /><span class="max-sm:hidden">Shell</span></button>
 			</div>
 		{/if}
+		{#if running}
+			<button class="btn btn-ghost btn-icon btn-sm" title="Attach files for {agentName} to read (or paste or drop them on the terminal)" disabled={attaching || conn !== 'open'} onclick={() => picker?.click()}>
+				{#if attaching}<LoaderCircle class="animate-spin" />{:else}<Paperclip />{/if}
+			</button>
+			<input bind:this={picker} type="file" multiple class="hidden" onchange={(e) => (attach([...(e.currentTarget.files ?? [])]), (e.currentTarget.value = ''))} />
+		{/if}
 		{#if isClaude}
 			<!-- Quick model switch: a native select, so phones get their own picker. -->
 			<label class="relative flex items-center gap-1 rounded-full border border-border px-2.5 py-1 text-xs text-muted-foreground hover:text-foreground max-sm:hidden" title="Model: {modelLabel(s.model)}. Change it here">
@@ -376,7 +400,7 @@
 				{#if question}<QuestionBar {question} {agentName} onanswer={(n) => answer(String(n))} oncancel={() => answer('Escape')} />{/if}
 				<div class="relative min-h-0 flex-1">
 					{#key `${s.containerId}:${mode}`}
-						<Terminal bind:this={term} path="/ws/sessions/{s.id}/terminal?mode={mode}" turns={mode === 'claude'} autofocus onstate={(v) => (conn = v)} onscreen={(lines) => (question = mode === 'claude' ? findQuestion(lines) : null)} />
+						<Terminal bind:this={term} path="/ws/sessions/{s.id}/terminal?mode={mode}" turns={mode === 'claude'} autofocus onstate={(v) => (conn = v)} onscreen={(lines) => (question = mode === 'claude' ? findQuestion(lines) : null)} onfiles={attach} />
 					{/key}
 					<!-- The agent's state as a glow around its terminal, over it but never in the way. -->
 					<div class="pointer-events-none absolute inset-0 z-10 {glowClass(view, { inset: true, connected: conn !== 'closed' })}"></div>
