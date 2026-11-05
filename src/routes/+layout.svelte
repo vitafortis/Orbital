@@ -17,6 +17,7 @@
 		Menu,
 		Pin,
 		PinOff,
+		Trash2,
 		Workflow,
 		X
 	} from '@lucide/svelte';
@@ -28,6 +29,7 @@
 	import CommandPalette from '#lib/components/CommandPalette.svelte';
 	import StateDot from '#lib/components/StateDot.svelte';
 	import { api } from '#lib/client/api.ts';
+	import { deleteSession } from '#lib/client/sessions.ts';
 	import { connectLive, provideSessions, session, sessions, setTheme, theme } from '#lib/client/state.svelte.ts';
 	import { displayState, glowClass, sortByRecency, STATE_META, type DisplayState } from '#lib/session-state.ts';
 	import { ago } from '#lib/client/format.ts';
@@ -183,7 +185,7 @@
 				<a
 					href="/s/{s.id}"
 					title="{s.name} — {repoLabel(s)}"
-					class="flex items-center gap-2.5 rounded-lg px-2.5 transition-colors {glowClass(view, { small: true })} {compact ? 'h-8 justify-center' : 'py-1.5 pr-8'} {active
+					class="flex items-center gap-2.5 rounded-lg px-2.5 transition-colors {glowClass(view, { small: true })} {compact ? 'h-8 justify-center' : 'py-1.5 pr-8 group-hover:pr-14 group-focus-within:pr-14'} {active
 						? 'bg-accent text-foreground'
 						: 'text-muted-foreground hover:bg-accent/70 hover:text-foreground'}"
 				>
@@ -205,6 +207,16 @@
 						onclick={() => togglePin(s.id)}
 					>
 						{#if isPinned}<PinOff class="size-3.5" />{:else}<Pin class="size-3.5" />{/if}
+					</button>
+					<!-- Deleting asks first; from the session's own page, it goes back to the overview. -->
+					<button
+						type="button"
+						class="absolute top-1.5 right-8 grid size-6 place-items-center rounded-md text-muted-foreground opacity-0 group-hover:opacity-100 hover:bg-danger/10 hover:text-danger focus-visible:opacity-100"
+						title="Delete"
+						aria-label="Delete {s.name}"
+						onclick={() => deleteSession(s, active ? '/' : '')}
+					>
+						<Trash2 class="size-3.5" />
 					</button>
 				{/if}
 			</div>
