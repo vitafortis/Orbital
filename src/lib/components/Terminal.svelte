@@ -414,36 +414,30 @@
 				if (start >= 0) add(start, line.length);
 				return runs;
 			};
-			let markTimer: ReturnType<typeof setTimeout> | undefined;
+			// Worked out as the terminal draws, in the same frame, so the colours move with the text
+			// when it scrolls rather than catching up after it.
 			const remark = () => {
-				if (!highlight || markTimer) return;
-				markTimer = setTimeout(() => {
-					markTimer = undefined;
-					const screen = host.querySelector<HTMLElement>('.xterm-screen');
-					if (!screen) return;
-					const b = term.buffer.active;
-					const lines: string[] = [];
-					for (let y = b.viewportY; y < b.viewportY + term.rows; y++) lines.push(b.getLine(y)?.translateToString(true) ?? '');
-					const at = screen.getBoundingClientRect();
-					const origin = layer.getBoundingClientRect();
-					const row = at.height / term.rows;
-					const col = at.width / term.cols;
-					const top = at.top - origin.top;
-					const left = at.left - origin.left;
-					const found = findHighlights(lines);
-					const next: typeof marks = found.map((h) => ({ kind: h.kind, top: top + h.from * row, height: (h.to - h.from + 1) * row, left, width: at.width }));
-					// Bold text outside those rows (inside them it's already coloured).
-					lines.forEach((line, i) => {
-						if (!line.trim() || isChrome(line) || found.some((h) => i >= h.from && i <= h.to)) return;
-						for (const [x0, x1] of boldRuns(b.viewportY + i)) next.push({ kind: 'bold', top: top + i * row, height: row, left: left + x0 * col, width: (x1 - x0) * col });
-					});
-					marks = next;
-				}, 120);
+				const screen = host.querySelector<HTMLElement>('.xterm-screen');
+				if (!screen) return;
+				const b = term.buffer.active;
+				const lines: string[] = [];
+				for (let y = b.viewportY; y < b.viewportY + term.rows; y++) lines.push(b.getLine(y)?.translateToString(true) ?? '');
+				const at = screen.getBoundingClientRect();
+				const origin = layer.getBoundingClientRect();
+				const row = at.height / term.rows;
+				const col = at.width / term.cols;
+				const top = at.top - origin.top;
+				const left = at.left - origin.left;
+				const found = findHighlights(lines);
+				const next: typeof marks = found.map((h) => ({ kind: h.kind, top: top + h.from * row, height: (h.to - h.from + 1) * row, left, width: at.width }));
+				// Bold text outside those rows (inside them it's already coloured).
+				lines.forEach((line, i) => {
+					if (!line.trim() || isChrome(line) || found.some((h) => i >= h.from && i <= h.to)) return;
+					for (const [x0, x1] of boldRuns(b.viewportY + i)) next.push({ kind: 'bold', top: top + i * row, height: row, left: left + x0 * col, width: (x1 - x0) * col });
+				});
+				marks = next;
 			};
-			const written = () => {
-				screenChanged();
-				remark();
-			};
+			if (highlight) term.onRender(remark);
 
 			let screenTimer: ReturnType<typeof setTimeout> | undefined;
 			const screenChanged = () => {
@@ -496,8 +490,8 @@
 				}, 10_000);
 				sock.onmessage = (e) => {
 					heard = Date.now();
-					if (typeof e.data === 'string') term.write(e.data, written);
-					else if (e.data.byteLength) term.write(new Uint8Array(e.data as ArrayBuffer), written);
+					if (typeof e.data === 'string') term.write(e.data, screenChanged);
+					else if (e.data.byteLength) term.write(new Uint8Array(e.data as ArrayBuffer), screenChanged);
 				};
 				sock.onclose = (e) => {
 					clearInterval(heartbeat);
@@ -529,7 +523,6 @@
 				host.removeEventListener('touchcancel', onTouchEnd, true);
 				host.removeEventListener('contextmenu', onContextMenu, true);
 				ro.disconnect();
-				clearTimeout(markTimer);
 				offAndroid();
 				ws?.close();
 				term.dispose();
