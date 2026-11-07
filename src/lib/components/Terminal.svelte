@@ -4,6 +4,7 @@
 	import { LoaderCircle, Paperclip, Unplug } from '@lucide/svelte';
 	import { copyText, writeClipboard } from '#lib/client/clipboard.ts';
 	import { toast } from '#lib/client/state.svelte.ts';
+	import { findHighlights, isChrome, type HighlightKind } from '#lib/highlight.ts';
 
 	let {
 		path,
@@ -11,7 +12,8 @@
 		onstate,
 		onscreen,
 		onfiles,
-		turns = false
+		turns = false,
+		highlight = false
 	}: {
 		/** The WebSocket path, e.g. /ws/sessions/<id>/terminal?mode=claude. */
 		path: string;
@@ -24,7 +26,17 @@
 		turns?: boolean;
 		/** Files pasted or dropped onto the terminal; without it, they're left to the browser. */
 		onfiles?: (files: File[]) => void;
+		/** Colour bold text, questions, urgent things and things for you to do on the agent's screen. */
+		highlight?: boolean;
 	} = $props();
+
+	// Highlights lie over the rows they colour: tmux draws in the alternate screen, where xterm's
+	// own decorations don't work, and the stream itself is left as tmux sent it. Multiplying
+	// tints light text and leaves the dark background dark.
+	type MarkKind = HighlightKind | 'bold';
+	const MARK: Record<MarkKind, string> = { bold: '#9ec1ff', question: '#ffd88a', urgent: '#ff9396', action: '#8de6f0' };
+	let layer: HTMLDivElement;
+	let marks = $state<{ kind: MarkKind; top: number; height: number; left: number; width: number }[]>([]);
 
 	// Files pasted (a screenshot on the clipboard) or dropped: taken before xterm, which only
 	// knows text. A plain text paste still goes to xterm.
@@ -377,6 +389,62 @@
 			});
 			ro.observe(host);
 
+			// Runs of bold text (headings, and labels like "Security:"), which the text alone doesn't show.
+			const cell = term.buffer.active.getNullCell();
+			const boldRuns = (y: number): [number, number][] => {
+				const line = term.buffer.active.getLine(y);
+				if (!line) return [];
+				const runs: [number, number][] = [];
+				const add = (x0: number, x1: number) => {
+					const text = line.translateToString(false, x0, x1);
+					// Without the spaces at its ends, and only if it has a letter or digit.
+					const lead = text.length - text.trimStart().length;
+					const trail = text.length - text.trimEnd().length;
+					if (/[\p{L}\p{N}]/u.test(text)) runs.push([x0 + lead, x1 - trail]);
+				};
+				let start = -1;
+				for (let x = 0; x < line.length; x++) {
+					const bold = !!line.getCell(x, cell)?.isBold();
+					if (bold && start < 0) start = x;
+					else if (!bold && start >= 0) {
+						add(start, x);
+						start = -1;
+					}
+				}
+				if (start >= 0) add(start, line.length);
+				return runs;
+			};
+			let markTimer: ReturnType<typeof setTimeout> | undefined;
+			const remark = () => {
+				if (!highlight || markTimer) return;
+				markTimer = setTimeout(() => {
+					markTimer = undefined;
+					const screen = host.querySelector<HTMLElement>('.xterm-screen');
+					if (!screen) return;
+					const b = term.buffer.active;
+					const lines: string[] = [];
+					for (let y = b.viewportY; y < b.viewportY + term.rows; y++) lines.push(b.getLine(y)?.translateToString(true) ?? '');
+					const at = screen.getBoundingClientRect();
+					const origin = layer.getBoundingClientRect();
+					const row = at.height / term.rows;
+					const col = at.width / term.cols;
+					const top = at.top - origin.top;
+					const left = at.left - origin.left;
+					const found = findHighlights(lines);
+					const next: typeof marks = found.map((h) => ({ kind: h.kind, top: top + h.from * row, height: (h.to - h.from + 1) * row, left, width: at.width }));
+					// Bold text outside those rows (inside them it's already coloured).
+					lines.forEach((line, i) => {
+						if (!line.trim() || isChrome(line) || found.some((h) => i >= h.from && i <= h.to)) return;
+						for (const [x0, x1] of boldRuns(b.viewportY + i)) next.push({ kind: 'bold', top: top + i * row, height: row, left: left + x0 * col, width: (x1 - x0) * col });
+					});
+					marks = next;
+				}, 120);
+			};
+			const written = () => {
+				screenChanged();
+				remark();
+			};
+
 			let screenTimer: ReturnType<typeof setTimeout> | undefined;
 			const screenChanged = () => {
 				if (!onscreen || screenTimer) return;
@@ -428,8 +496,8 @@
 				}, 10_000);
 				sock.onmessage = (e) => {
 					heard = Date.now();
-					if (typeof e.data === 'string') term.write(e.data, screenChanged);
-					else if (e.data.byteLength) term.write(new Uint8Array(e.data as ArrayBuffer), screenChanged);
+					if (typeof e.data === 'string') term.write(e.data, written);
+					else if (e.data.byteLength) term.write(new Uint8Array(e.data as ArrayBuffer), written);
 				};
 				sock.onclose = (e) => {
 					clearInterval(heartbeat);
@@ -461,6 +529,7 @@
 				host.removeEventListener('touchcancel', onTouchEnd, true);
 				host.removeEventListener('contextmenu', onContextMenu, true);
 				ro.disconnect();
+				clearTimeout(markTimer);
 				offAndroid();
 				ws?.close();
 				term.dispose();
@@ -486,8 +555,15 @@
 >
 	<!-- Padding sits outside the host: the fit addon sizes rows from the host's own box. -->
 	<!-- Dimmed while keystrokes can't reach the container. -->
-	<div class="absolute inset-0 py-1.5 pl-2 transition-opacity duration-300 {conn === 'closed' ? 'opacity-45' : ''}">
+	<div bind:this={layer} class="absolute inset-0 isolate py-1.5 pl-2 transition-opacity duration-300 {conn === 'closed' ? 'opacity-45' : ''}">
 		<div bind:this={host} class="h-full w-full"></div>
+		{#each marks as m, i (i)}
+			<div class="pointer-events-none absolute mix-blend-multiply" style="top: {m.top}px; height: {m.height}px; left: {m.left}px; width: {m.width}px; background: {MARK[m.kind]}"></div>
+			{#if m.kind !== 'bold'}
+				<!-- A bar in the margin, to find them when scanning down. -->
+				<div class="pointer-events-none absolute w-0.5 rounded-full" style="top: {m.top + 1}px; height: {m.height - 2}px; left: {m.left - 6}px; background: {MARK[m.kind]}"></div>
+			{/if}
+		{/each}
 	</div>
 	{#if inputLog}
 		<button

@@ -400,7 +400,7 @@
 				{#if question}<QuestionBar {question} {agentName} onanswer={(n) => answer(String(n))} oncancel={() => answer('Escape')} />{/if}
 				<div class="relative min-h-0 flex-1">
 					{#key `${s.containerId}:${mode}`}
-						<Terminal bind:this={term} path="/ws/sessions/{s.id}/terminal?mode={mode}" turns={mode === 'claude'} autofocus onstate={(v) => (conn = v)} onscreen={(lines) => (question = mode === 'claude' ? findQuestion(lines) : null)} onfiles={attach} />
+						<Terminal bind:this={term} path="/ws/sessions/{s.id}/terminal?mode={mode}" turns={mode === 'claude'} highlight={mode === 'claude'} autofocus onstate={(v) => (conn = v)} onscreen={(lines) => (question = mode === 'claude' ? findQuestion(lines) : null)} onfiles={attach} />
 					{/key}
 					<!-- The agent's state as a glow around its terminal, over it but never in the way. -->
 					<div class="pointer-events-none absolute inset-0 z-10 {glowClass(view, { inset: true, connected: conn !== 'closed' })}"></div>
