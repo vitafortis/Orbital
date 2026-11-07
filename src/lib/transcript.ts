@@ -3,7 +3,7 @@
  * tool, task list and title. The format is internal to Claude Code and changes between
  * versions, so everything here is best effort: unknown lines are skipped, never fatal.
  */
-import type { Todo, TranscriptSummary } from './types.ts';
+import type { ReadPart, ReadTurn, Todo, TranscriptSummary } from './types.ts';
 
 type Block = { type?: string; text?: string; name?: string; input?: Record<string, unknown> };
 type Entry = {
@@ -175,4 +175,40 @@ export function excerpt(text: string, maxChars = 60_000): string {
 		size += parts[i].length + 1;
 	}
 	return out.join('\n');
+}
+
+/**
+ * The conversation as turns, for reading: each prompt you sent, then the agent's words and the
+ * tools it ran in between, in order. The newest `max` turns.
+ */
+export function readTurns(text: string, max = 40): ReadTurn[] {
+	const turns: ReadTurn[] = [];
+	let cur: ReadTurn | null = null;
+	const start = (prompt: string | null, at: string | null) => {
+		cur = { prompt, at, parts: [] };
+		turns.push(cur);
+		return cur;
+	};
+	for (const e of parseLines(text)) {
+		const p = promptText(e);
+		if (p) {
+			start(p, typeof e.timestamp === 'string' ? e.timestamp : null);
+			continue;
+		}
+		if (e.type !== 'assistant' || e.isSidechain) continue;
+		const c = e.message?.content;
+		const blocks: Block[] = typeof c === 'string' ? [{ type: 'text', text: c }] : Array.isArray(c) ? c : [];
+		for (const b of blocks) {
+			const t: ReadTurn = cur ?? start(null, null);
+			const last: ReadPart | undefined = t.parts.at(-1);
+			if (b?.type === 'text' && b.text?.trim()) {
+				if (last?.kind === 'text') last.text += `\n\n${b.text.trim()}`;
+				else t.parts.push({ kind: 'text', text: b.text.trim() });
+			} else if (b?.type === 'tool_use' && typeof b.name === 'string') {
+				if (last?.kind === 'tools') last.tools.push(describeTool(b));
+				else t.parts.push({ kind: 'tools', tools: [describeTool(b)] });
+			}
+		}
+	}
+	return turns.filter((t) => t.prompt || t.parts.length).slice(-max);
 }
