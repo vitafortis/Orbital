@@ -96,6 +96,9 @@ export async function refreshOrgs(account: GithubAccount): Promise<string[]> {
 	if (!token) return [];
 	const orgs = await orgsOf(token);
 	setGithubOrgs(account.id, orgs);
+	// And the organizations whose repos it can open, which the list above can miss.
+	repoCache.delete(account.id);
+	await listRepos({ ...account, orgs }).catch(() => null);
 	return orgs;
 }
 
@@ -184,14 +187,20 @@ export async function listRepos(account: GithubAccount, refresh = false): Promis
 	}
 	const orgs = new Set([...account.orgs, ...[...byName.values()].map((r) => r.owner)]);
 	orgs.delete(account.login);
+	const opened: string[] = [];
 	await Promise.all(
 		[...orgs].slice(0, 20).map(async (org) => {
 			const res = await ghFetch(token, `/orgs/${org}/repos?type=all&sort=pushed&per_page=100`).catch(() => null);
 			if (!res?.ok) return; // a user, not an org, or no access: the user's list has what there is
+			opened.push(org);
 			const data = (await res.json().catch(() => [])) as GhRepo[];
 			if (Array.isArray(data)) for (const r of data) if (!byName.has(r.full_name)) byName.set(r.full_name, toRepo(r));
 		})
 	);
+	// Organizations found this way count as the token's own (a new repo can go there): a
+	// fine-grained token often can't list its organizations, but can open its org's repos.
+	const found = opened.filter((o) => !account.orgs.includes(o));
+	if (found.length) setGithubOrgs(account.id, [...account.orgs, ...found.sort()]);
 	const repos = [...byName.values()].sort((a, b) => (b.pushedAt ?? '').localeCompare(a.pushedAt ?? ''));
 	const list = { repos, notice };
 	repoCache.set(account.id, { at: Date.now(), list });
@@ -293,6 +302,15 @@ export async function repoAccess(fullName: string): Promise<{ repo: GithubRepo |
 }
 
 /** Every token's repositories in one list, most recently pushed first; ?owner and ?search alike. */
+/**
+ * Each token's organizations, for a new repo's owner: the ones GitHub lists for it, and the
+ * ones whose repos it can open (found by listing its repos, cached for a couple of minutes).
+ */
+export async function repoOwners(): Promise<{ accountId: string; orgs: string[] }[]> {
+	await Promise.allSettled(listGithubAccounts().map((a) => listRepos(a)));
+	return listGithubAccounts().map((a) => ({ accountId: a.id, orgs: a.orgs }));
+}
+
 export async function allRepos(how: { owner?: string; search?: string; refresh?: boolean } = {}): Promise<RepoList> {
 	const accounts = listGithubAccounts();
 	const results = await Promise.allSettled(

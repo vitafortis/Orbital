@@ -176,3 +176,18 @@ test('rankTokens prefers the stricter token when none reports write access', () 
 		['narrow', 'wide', 'classic']
 	);
 });
+
+test("an org-scoped token that can't list its orgs still offers its org as a new repo's owner", async () => {
+	const t = store.upsertGithubAccount(input('github_pat_org'), { label: 'Armistice' });
+	assert.deepEqual(t.orgs, []);
+	const restore = fakeGithub((url) => {
+		if (url.pathname === '/user/repos') return Response.json([repoJson('armistice/tierity'), repoJson('someone/shared')]);
+		if (url.pathname === '/orgs/armistice/repos') return Response.json([repoJson('armistice/tierity'), repoJson('armistice/site')]);
+		// A user, not an org.
+		return new Response('{"message":"Not Found"}', { status: 404 });
+	});
+	const owners = await github.repoOwners();
+	restore();
+	assert.deepEqual(owners.find((o) => o.accountId === t.id)?.orgs, ['armistice']);
+	assert.deepEqual(store.getGithubAccount(t.id)?.orgs, ['armistice']);
+});
