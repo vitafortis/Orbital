@@ -15,6 +15,8 @@ import type {
 	LinearRef,
 	LinearRule,
 	LinearRun,
+	McpSecrets,
+	McpServer,
 	PermissionMode,
 	Profile,
 	Session,
@@ -220,6 +222,17 @@ function migrate(h: DatabaseSync) {
 			account_name TEXT,
 			role_name TEXT NOT NULL,
 			region TEXT NOT NULL,
+			created_at TEXT NOT NULL
+		);
+
+		CREATE TABLE IF NOT EXISTS mcp_servers (
+			id TEXT PRIMARY KEY,
+			name TEXT NOT NULL UNIQUE,
+			kind TEXT NOT NULL,
+			config TEXT NOT NULL DEFAULT '{}',
+			secret TEXT,
+			accounts TEXT NOT NULL DEFAULT '[]',
+			enabled INTEGER NOT NULL DEFAULT 1,
 			created_at TEXT NOT NULL
 		);
 	`);
@@ -995,4 +1008,65 @@ export function updateAwsProfile(id: string, input: AwsProfileInput) {
 
 export function deleteAwsProfile(id: string): boolean {
 	return db().prepare('DELETE FROM aws_profiles WHERE id = ?').run(id).changes > 0;
+}
+
+// ── Library: MCP servers ───────────────────────────────────────────────
+
+const mcpSecrets = (r: Row): McpSecrets => (r.secret ? (JSON.parse(decrypt(r.secret as string, `mcp:${r.id}`)) as McpSecrets) : {});
+
+function toMcpServer(r: Row): McpServer {
+	const c = JSON.parse((r.config as string) || '{}') as { command?: string; args?: string[]; url?: string; notion?: McpServer['notion'] };
+	const sec = mcpSecrets(r);
+	return {
+		id: r.id as string,
+		name: r.name as string,
+		kind: r.kind as McpServer['kind'],
+		command: c.command ?? null,
+		args: c.args ?? [],
+		url: c.url ?? null,
+		notion: c.notion ?? null,
+		secretKeys: [...(sec.token ? ['token'] : []), ...Object.keys(sec.env ?? {}), ...Object.keys(sec.headers ?? {})],
+		accountIds: JSON.parse((r.accounts as string) || '[]'),
+		enabled: !!r.enabled,
+		createdAt: r.created_at as string
+	};
+}
+
+export function listMcpServers(): McpServer[] {
+	return (db().prepare('SELECT * FROM mcp_servers ORDER BY name').all() as Row[]).map(toMcpServer);
+}
+
+export function getMcpServer(id: string): McpServer | undefined {
+	const r = db().prepare('SELECT * FROM mcp_servers WHERE id = ?').get(id) as Row | undefined;
+	return r ? toMcpServer(r) : undefined;
+}
+
+export function getMcpSecrets(id: string): McpSecrets {
+	const r = db().prepare('SELECT id, secret FROM mcp_servers WHERE id = ?').get(id) as Row | undefined;
+	return r ? mcpSecrets(r) : {};
+}
+
+export type McpServerInput = Pick<McpServer, 'name' | 'kind' | 'command' | 'args' | 'url' | 'notion' | 'accountIds' | 'enabled'>;
+
+const mcpConfig = (i: McpServerInput) => JSON.stringify({ command: i.command ?? undefined, args: i.args.length ? i.args : undefined, url: i.url ?? undefined, notion: i.notion ?? undefined });
+const sealMcp = (id: string, s: McpSecrets) => (s.token || Object.keys(s.env ?? {}).length || Object.keys(s.headers ?? {}).length ? encrypt(JSON.stringify(s), `mcp:${id}`) : null);
+
+export function createMcpServer(input: McpServerInput, secrets: McpSecrets): McpServer {
+	const id = randomUUID();
+	db()
+		.prepare('INSERT INTO mcp_servers (id, name, kind, config, secret, accounts, enabled, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+		.run(id, input.name, input.kind, mcpConfig(input), sealMcp(id, secrets), JSON.stringify(input.accountIds), input.enabled ? 1 : 0, now());
+	return getMcpServer(id)!;
+}
+
+/** Updates a server; `secrets`, when given, replaces them all. */
+export function updateMcpServer(id: string, input: McpServerInput, secrets?: McpSecrets) {
+	db()
+		.prepare('UPDATE mcp_servers SET name = ?, kind = ?, config = ?, accounts = ?, enabled = ? WHERE id = ?')
+		.run(input.name, input.kind, mcpConfig(input), JSON.stringify(input.accountIds), input.enabled ? 1 : 0, id);
+	if (secrets) db().prepare('UPDATE mcp_servers SET secret = ? WHERE id = ?').run(sealMcp(id, secrets), id);
+}
+
+export function deleteMcpServer(id: string): boolean {
+	return db().prepare('DELETE FROM mcp_servers WHERE id = ?').run(id).changes > 0;
 }

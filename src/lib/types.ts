@@ -89,6 +89,39 @@ export interface GithubAccount {
 	createdAt: string;
 }
 
+/**
+ * An MCP server in the Library, given to Claude sessions (--mcp-config): Notion through an
+ * integration token, or any server by command or URL. Secrets stay on the server; the browser
+ * only sees which keys are set.
+ */
+export type McpKind = 'notion' | 'stdio' | 'http';
+export interface McpServer {
+	id: string;
+	/** The server's name in Claude Code ("notion"): letters, digits, "-" and "_". */
+	name: string;
+	kind: McpKind;
+	/** stdio: the command and its arguments. */
+	command: string | null;
+	args: string[];
+	/** http: the server's URL. */
+	url: string | null;
+	/** Notion: the integration and workspace the token belongs to, as Notion reported them. */
+	notion: { bot: string | null; workspace: string | null } | null;
+	/** Names of the environment variables (stdio) or headers (http) set, without their values. */
+	secretKeys: string[];
+	/** The Claude accounts whose sessions get it; empty for all of them. */
+	accountIds: string[];
+	enabled: boolean;
+	createdAt: string;
+}
+
+/** An MCP server's secrets: the Notion token, a stdio server's environment, an http server's headers. */
+export interface McpSecrets {
+	token?: string;
+	env?: Record<string, string>;
+	headers?: Record<string, string>;
+}
+
 /** What one GitHub token gets for a repository, for picking the token a session uses. */
 export interface TokenAccess {
 	accountId: string;

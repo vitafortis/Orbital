@@ -30,6 +30,13 @@ test('claudeArgs: a new session with a first message', () => {
 	);
 });
 
+test('claudeArgs: the Library\'s MCP servers come first', () => {
+	assert.deepEqual(
+		claudeArgs({ name: 'api', model: null, permissionMode: 'default', remoteControl: false, mcpConfig: '/session/.orb/mcp.json' }, { mode: 'new', prompt: 'hi' }),
+		['--mcp-config', '/session/.orb/mcp.json', '--name', 'api', 'hi']
+	);
+});
+
 test('claudeArgs: continue and resume, without Remote Control', () => {
 	const opts = { name: 'api', model: null, permissionMode: 'default' as const, remoteControl: false };
 	assert.deepEqual(claudeArgs(opts, { mode: 'continue' }), ['--name', 'api', '--continue']);
