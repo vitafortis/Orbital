@@ -223,6 +223,22 @@ export interface TranscriptSummary {
 	todos: Todo[];
 }
 
+/** One turn of a conversation, for the Read tab: your prompt, then what the agent said and ran. */
+export type ReadPart = { kind: 'text'; text: string } | { kind: 'tools'; tools: string[] };
+export interface ReadTurn {
+	prompt: string | null;
+	at: string | null;
+	parts: ReadPart[];
+}
+
+/** A conversation for the Read tab, with the list items you ticked off. */
+export interface ReadConversation {
+	conversationId: string;
+	updatedAt: string;
+	turns: ReadTurn[];
+	ticked: string[];
+}
+
 export interface Conversation {
 	id: string;
 	title: string | null;

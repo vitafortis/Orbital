@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { conversationInfo, describeTool, excerpt, summarizeTranscript } from '#lib/transcript.ts';
+import { conversationInfo, describeTool, excerpt, readTurns, summarizeTranscript } from '#lib/transcript.ts';
 
 const line = (o: unknown) => JSON.stringify(o);
 const user = (content: unknown, extra = {}) => line({ type: 'user', message: { role: 'user', content }, ...extra });
@@ -54,4 +54,31 @@ test('conversationInfo and excerpt', () => {
 test('describeTool falls back to the name', () => {
 	assert.equal(describeTool({ name: 'Read', input: { file_path: '/a/b.ts' } }), 'Read: /a/b.ts');
 	assert.equal(describeTool({ name: 'Think', input: {} }), 'Think');
+});
+
+test('readTurns: prompts, then the words and tools in between, in order', () => {
+	const entries = [
+		{ type: 'user', timestamp: '2026-11-07T10:00:00Z', message: { role: 'user', content: 'what is left?' } },
+		{ type: 'assistant', message: { content: [{ type: 'text', text: 'Checking.' }] } },
+		{ type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Bash', input: { command: 'gh issue list' } }] } },
+		{ type: 'user', message: { content: [{ type: 'tool_result', content: 'ok' }] } },
+		{ type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Read', input: { file_path: 'a.ts' } }] } },
+		{ type: 'assistant', message: { content: [{ type: 'text', text: '## Left\n\n- one' }] } },
+		{ type: 'assistant', message: { content: [{ type: 'text', text: 'Want me to start?' }] } },
+		{ type: 'assistant', isSidechain: true, message: { content: [{ type: 'text', text: 'subagent' }] } },
+		{ type: 'something-new', foo: 1 },
+		'not json'
+	];
+	const text = entries.map((l) => (typeof l === 'string' ? l : line(l))).join('\n');
+	assert.deepEqual(readTurns(text), [
+		{
+			prompt: 'what is left?',
+			at: '2026-11-07T10:00:00Z',
+			parts: [
+				{ kind: 'text', text: 'Checking.' },
+				{ kind: 'tools', tools: ['Bash: gh issue list', 'Read: a.ts'] },
+				{ kind: 'text', text: '## Left\n\n- one\n\nWant me to start?' }
+			]
+		}
+	]);
 });

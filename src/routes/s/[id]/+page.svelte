@@ -3,6 +3,7 @@
 		ArrowDown,
 		ArrowDownToLine,
 		ArrowUp,
+		BookOpen,
 		ChevronDown,
 		ChevronUp,
 		CircleAlert,
@@ -47,6 +48,7 @@
 	import { ago, githubLabel } from '#lib/client/format.ts';
 	import { attachFiles, deleteSession, relaunchAgent, sendToSession, startSession, stopSession, type Launch } from '#lib/client/sessions.ts';
 	import QuestionBar from '#lib/components/QuestionBar.svelte';
+	import ReadView from '#lib/components/ReadView.svelte';
 	import ModelPicker from '#lib/components/ModelPicker.svelte';
 	import PanelSection from '#lib/components/PanelSection.svelte';
 	import { CLAUDE_ALIASES, modelLabel } from '#lib/models.ts';
@@ -99,6 +101,21 @@
 	const permissionModes = $derived(PERMISSION_MODES.filter((m) => AGENT_PERMISSION_MODES[s.agent].includes(m.value)));
 
 	let mode = $state<'claude' | 'shell'>('claude');
+	// The Read tab: the conversation formatted, over the terminal (which stays connected under it).
+	// This browser remembers it, so a phone can open on it.
+	let reading = $state(false);
+	$effect(() => {
+		try {
+			reading = localStorage.getItem('orb.read') === '1';
+		} catch {}
+	});
+	function show(tab: 'claude' | 'shell' | 'read') {
+		reading = tab === 'read';
+		if (tab !== 'read') mode = tab;
+		try {
+			localStorage.setItem('orb.read', reading ? '1' : '0');
+		} catch {}
+	}
 	let panel = $state(true);
 	let term = $state<Terminal>();
 	let touch = $state(false);
@@ -344,10 +361,15 @@
 		<span class="max-md:hidden"><SessionTags session={s} /></span>
 		<span class="max-sm:hidden"><StateBadge state={view} /></span>
 
-		{#if running}
+		{#if running || isClaude}
 			<div class="flex rounded-lg border border-border bg-background p-0.5 text-xs">
-				<button class="flex items-center gap-1.5 rounded-md px-2.5 py-1 {mode === 'claude' ? 'bg-accent font-medium text-foreground' : 'text-muted-foreground'}" onclick={() => (mode = 'claude')}><TerminalSquare class="size-3.5" /><span class="max-sm:hidden">{agentName}</span></button>
-				<button class="flex items-center gap-1.5 rounded-md px-2.5 py-1 {mode === 'shell' ? 'bg-accent font-medium text-foreground' : 'text-muted-foreground'}" onclick={() => (mode = 'shell')}><SquareTerminal class="size-3.5" /><span class="max-sm:hidden">Shell</span></button>
+				{#if running}
+					<button class="flex items-center gap-1.5 rounded-md px-2.5 py-1 {!reading && mode === 'claude' ? 'bg-accent font-medium text-foreground' : 'text-muted-foreground'}" onclick={() => show('claude')}><TerminalSquare class="size-3.5" /><span class="max-sm:hidden">{agentName}</span></button>
+					<button class="flex items-center gap-1.5 rounded-md px-2.5 py-1 {!reading && mode === 'shell' ? 'bg-accent font-medium text-foreground' : 'text-muted-foreground'}" onclick={() => show('shell')}><SquareTerminal class="size-3.5" /><span class="max-sm:hidden">Shell</span></button>
+				{/if}
+				{#if isClaude}
+					<button class="flex items-center gap-1.5 rounded-md px-2.5 py-1 {reading ? 'bg-accent font-medium text-foreground' : 'text-muted-foreground'}" title="The conversation, formatted" onclick={() => show(reading && !running ? 'claude' : 'read')}><BookOpen class="size-3.5" /><span class="max-sm:hidden">Read</span></button>
+				{/if}
 			</div>
 		{/if}
 		{#if running}
@@ -398,7 +420,8 @@
 				<!-- The agent's screen only: the Shell tab is a separate terminal the probe doesn't read. -->
 				{#if mode === 'claude'}<LinkBar links={live?.links ?? []} />{/if}
 				{#if question}<QuestionBar {question} {agentName} onanswer={(n) => answer(String(n))} oncancel={() => answer('Escape')} />{/if}
-				<div class="relative min-h-0 flex-1">
+				{#if reading && isClaude}<ReadView session={s} updatedAt={sum?.updatedAt} running {agentName} />{/if}
+				<div class="relative min-h-0 flex-1 {reading && isClaude ? 'hidden' : ''}">
 					{#key `${s.containerId}:${mode}`}
 						<Terminal bind:this={term} path="/ws/sessions/{s.id}/terminal?mode={mode}" turns={mode === 'claude'} highlight={mode === 'claude'} autofocus onstate={(v) => (conn = v)} onscreen={(lines) => (question = mode === 'claude' ? findQuestion(lines) : null)} onfiles={attach} />
 					{/key}
@@ -413,7 +436,7 @@
 						</div>
 					{/if}
 				</div>
-				{#if touch}
+				{#if touch && !(reading && isClaude)}
 					<!-- Keys a touch keyboard lacks. Pressing one keeps the terminal focused, so the keyboard stays up. -->
 					<div class="flex shrink-0 items-center gap-1.5 overflow-x-auto border-t border-term-edge px-2 py-1.5" style="background: var(--term-chrome)">
 						<button type="button" class="btn btn-ghost btn-icon btn-sm shrink-0 text-[#aab2c0] hover:bg-white/5 hover:text-white" title="Show the keyboard" onpointerdown={(e) => e.preventDefault()} onclick={() => term?.focus()}><Keyboard /></button>
@@ -424,6 +447,8 @@
 						{/each}
 					</div>
 				{/if}
+			{:else if reading && isClaude}
+				<ReadView session={s} updatedAt={sum?.updatedAt} running={false} {agentName} />
 			{:else}
 				<div class="relative flex min-h-0 flex-1 flex-col items-center justify-center overflow-y-auto p-6" style="background: var(--term-bg)">
 					{#if live?.tail?.length}

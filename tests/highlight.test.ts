@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { findHighlights } from '#lib/highlight.ts';
+import { classify, findHighlights } from '#lib/highlight.ts';
 
 const rows = (text: string) => text.replace(/^\n/, '').split('\n');
 
@@ -81,4 +81,12 @@ test('a real status report: urgent items, and the question at the end', () => {
 		{ kind: 'urgent', from: 5, to: 6 },
 		{ kind: 'question', from: 12, to: 12 }
 	]);
+});
+
+test('classify: one paragraph or list item at a time', () => {
+	assert.equal(classify("Here's where things stand before the release."), null);
+	assert.equal(classify("I'd fix this before Monday."), 'urgent');
+	assert.equal(classify('Want me to start?'), 'question');
+	assert.equal(classify("Pushed. You'll need to approve the PR."), 'action');
+	assert.equal(classify('The docs site rewrite.'), null);
 });

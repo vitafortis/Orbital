@@ -22,7 +22,7 @@ const TOOL_CALL = /^\s*[⏺●]\s*[A-Z][\w-]*(?:\(|$)/;
 const QUESTION = /[\p{L}\p{N})\]'"’”*_]\?(?=\s|$|[)"'’”*_])/u;
 const DAY = '(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|tomorrow|tonight|eod|end of (?:the )?(?:day|week))';
 const URGENT = new RegExp(
-	`\\b(?:urgent(?:ly)?|asap|blockers?|blocking|critical|immediately|right away|data loss|security (?:hole|risk|issue)|(?:is|are) (?:broken|down)|before ${DAY}|by ${DAY}|before (?:the )?(?:release|launch))\\b`,
+	`\\b(?:urgent(?:ly)?|asap|blockers?|blocking|critical|immediately|right away|data loss|security (?:hole|risk|issue)|(?:is|are) (?:broken|down)|before ${DAY}|by ${DAY})\\b`,
 	'i'
 );
 const ACTION =
@@ -67,6 +67,18 @@ const sentences = (text: string) => text.split(/(?<=[.!:;])\s+/);
 /** Rows that are the agent's tools or the agent's chrome rather than its words: never coloured. */
 export const isChrome = (line: string) => SKIP.test(line) || TOOL_CALL.test(line);
 
+/** A heading that introduces things for you to do ("Next steps:"); its list items are actions too. */
+export const isActionHeading = (text: string) => ACTION_HEADING.test(prose(text));
+
+/** What one paragraph or list item is, if it's addressed to you. */
+export function classify(text: string): HighlightKind | null {
+	const t = prose(text);
+	if (QUESTION.test(t)) return 'question';
+	if (URGENT.test(t)) return 'urgent';
+	if (ACTION_HEADING.test(t) || sentences(t).some((x) => ACTION.test(x))) return 'action';
+	return null;
+}
+
 /** The rows to colour on a screen of plain-text rows, top to bottom. */
 export function findHighlights(lines: string[]): Highlight[] {
 	const out: Highlight[] = [];
@@ -77,15 +89,10 @@ export function findHighlights(lines: string[]): Highlight[] {
 			underHeading = false;
 			continue;
 		}
-		const text = prose(b.text);
 		if (!b.list) underHeading = false;
-		const mark = (kind: HighlightKind) => out.push({ kind, from: b.from, to: b.to });
-		if (QUESTION.test(text)) mark('question');
-		else if (URGENT.test(text)) mark('urgent');
-		else if (ACTION_HEADING.test(text)) {
-			mark('action');
-			underHeading = true;
-		} else if (sentences(text).some((t) => ACTION.test(t)) || (underHeading && b.list)) mark('action');
+		const kind = classify(b.text) ?? (underHeading && b.list ? 'action' : null);
+		if (kind) out.push({ kind, from: b.from, to: b.to });
+		if (kind === 'action' && isActionHeading(b.text)) underHeading = true;
 	}
 	return out;
 }
