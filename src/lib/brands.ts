@@ -13,7 +13,7 @@ import google from '@lobehub/icons-static-svg/icons/google-color.svg?raw';
 import microsoft from '@lobehub/icons-static-svg/icons/microsoft-color.svg?raw';
 import openai from '@lobehub/icons-static-svg/icons/openai.svg?raw';
 import vertexai from '@lobehub/icons-static-svg/icons/vertexai-color.svg?raw';
-import { siAuth0, siAuthelia, siAuthentik, siCloudflare, siGithub, siKeycloak, siLinear, siOkta, siTailscale } from 'simple-icons';
+import { siAuth0, siAuthelia, siAuthentik, siCloudflare, siGithub, siKeycloak, siLinear, siNotion, siOkta, siTailscale } from 'simple-icons';
 import type { AccountKind, Agent } from './types.ts';
 
 /** Simple Icons gives a path; draw it in the brand colour, or the text colour for black logos. */
@@ -35,6 +35,7 @@ export const BRANDS = {
 	// Near-black marks follow the text colour so they show in the dark theme.
 	github: simple(siGithub, true),
 	linear: simple(siLinear),
+	notion: simple(siNotion, true),
 	authentik: simple(siAuthentik),
 	authelia: simple(siAuthelia, true),
 	keycloak: simple(siKeycloak, true),

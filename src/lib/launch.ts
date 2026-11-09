@@ -71,13 +71,16 @@ export interface LaunchOptions {
 	permissionMode: PermissionMode;
 	/** Only honored for claude.ai subscription logins; tokens and API keys can't use it. */
 	remoteControl: boolean;
+	/** Claude only: the Library's MCP servers, a file in the container (see sessions/mcp.ts). */
+	mcpConfig?: string | null;
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** Claude Code's command-line arguments for one launch of a session. */
 export function claudeArgs(opts: LaunchOptions, launch: LaunchMode): string[] {
-	const args = ['--name', opts.name];
+	// --mcp-config takes several files: first, so the next option ends its list.
+	const args = [...(opts.mcpConfig ? ['--mcp-config', opts.mcpConfig] : []), '--name', opts.name];
 	if (opts.model) args.push('--model', opts.model);
 	if (opts.permissionMode !== 'default') args.push('--permission-mode', opts.permissionMode);
 	if (launch.mode === 'continue') args.push('--continue');
