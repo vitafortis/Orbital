@@ -14,7 +14,7 @@
 	import { api, errorMessage } from '#lib/client/api.ts';
 	import { upsertSession } from '#lib/client/state.svelte.ts';
 	import { parseRepo, slugify } from '#lib/launch.ts';
-	import { ago, githubLabel } from '#lib/client/format.ts';
+	import { ago, githubKind, githubLabel } from '#lib/client/format.ts';
 	import { matchProfile } from '#lib/profiles.ts';
 	import { ACCOUNT_KINDS, AGENT_LABEL, AGENT_PERMISSION_MODES, fitPermissionMode } from '#lib/providers.ts';
 	import { PERMISSION_MODES, type GithubAccount, type GithubPull, type GithubRepo, type PermissionMode, type Session, type SkillOption, type TokenAccess } from '#lib/types.ts';
@@ -72,7 +72,14 @@
 	let orgsByToken = $state<Record<string, string[]>>({});
 	let findingOwners = $state(false);
 	const tokenOrgs = (a: GithubAccount) => orgsByToken[a.id] ?? a.orgs;
-	const owners = $derived(data.githubAccounts.flatMap((a) => [a.login, ...tokenOrgs(a)].map((o) => ({ key: `${a.id}/${o}`, accountId: a.id, owner: o, label: data.githubAccounts.length > 1 ? `${o} · ${githubLabel(a)}` : o }))));
+	// What a token can create under: an org token only its org, a personal one only its user.
+	function tokenOwners(a: GithubAccount): string[] {
+		const k = githubKind(a);
+		if (k.org) return [k.org];
+		if (a.resourceOwner) return [a.login];
+		return [a.login, ...tokenOrgs(a)];
+	}
+	const owners = $derived(data.githubAccounts.flatMap((a) => tokenOwners(a).map((o) => ({ key: `${a.id}/${o}`, accountId: a.id, owner: o, label: data.githubAccounts.length > 1 ? `${o} · ${githubLabel(a)}` : o }))));
 	const OTHER_OWNER = 'other';
 	let ownerKey = $state('');
 	let ownerTouched = false;
@@ -95,7 +102,9 @@
 			kept = localStorage.getItem(OWNER_MEMORY) ?? '';
 		} catch {}
 		if (owners.some((o) => o.key === kept)) return kept;
-		const fine = data.githubAccounts.find((a) => a.kind === 'pat' && a.scopes === null && tokenOrgs(a).length);
+		const org = data.githubAccounts.find((a) => githubKind(a).org);
+		if (org) return `${org.id}/${githubKind(org).org}`;
+		const fine = data.githubAccounts.find((a) => a.kind === 'pat' && a.scopes === null && !a.resourceOwner && tokenOrgs(a).length);
 		return fine ? `${fine.id}/${tokenOrgs(fine)[0]}` : (owners[0]?.key ?? '');
 	}
 	$effect(() => {
@@ -164,7 +173,7 @@
 	const KIND_LABEL: Record<TokenAccess['kind'], string> = { 'fine-grained': 'Fine-grained token', classic: 'Classic token', 'sign-in': 'GitHub sign-in', unknown: 'Token' };
 	function facts(t: TokenAccess): string[] {
 		return [
-			KIND_LABEL[t.kind],
+			ghAccount(t.accountId) ? githubKind(ghAccount(t.accountId)!).label : KIND_LABEL[t.kind],
 			t.access ? `GitHub reports ${t.access} access` : '',
 			t.kind !== 'fine-grained' && t.scopes ? `scopes: ${t.scopes}` : '',
 			t.sees ? `lists ${t.sees.repos} repo${t.sees.repos === 1 ? '' : 's'} (${t.sees.private} private)` : '',
@@ -178,7 +187,8 @@
 	// Profiles: "auto" uses the first one matching the repo. Picking (or matching) a profile
 	// fills in its account, model and permissions, which can still be changed by hand.
 	let profileChoice = $state<string>('auto');
-	const matched = $derived(parsed ? matchProfile(data.profiles, parsed.fullName ?? parsed.url) : null);
+	// A new repo matches as owner/name too, so "armistice-group/*" picks its account for one.
+	const matched = $derived(creating ? (newOwner ? matchProfile(data.profiles, `${newOwner.owner}/${newRepo}`) : null) : parsed ? matchProfile(data.profiles, parsed.fullName ?? parsed.url) : null);
 	const profile = $derived(profileChoice === 'auto' ? matched : (data.profiles.find((p) => p.id === profileChoice) ?? null));
 	let appliedProfile: string | null = null;
 	$effect(() => {
@@ -441,7 +451,7 @@
 							<div>
 								<label class="label" for="othertoken">Created with</label>
 								<select id="othertoken" class="input" bind:value={otherToken}>
-									{#each data.githubAccounts as a (a.id)}<option value={a.id}>{githubLabel(a)}</option>{/each}
+									{#each data.githubAccounts as a (a.id)}<option value={a.id}>{githubLabel(a)} ({githubKind(a).label})</option>{/each}
 								</select>
 							</div>
 						{/if}
@@ -467,7 +477,7 @@
 					<div>
 						<label class="label flex items-center gap-1.5" for="nrgh"><BrandIcon brand="github" class="size-3.5" />GitHub token <span class="font-normal text-muted-foreground/70">(for gh and pushing)</span></label>
 						<select id="nrgh" class="input" bind:value={noRepoToken}>
-							{#each data.githubAccounts as a (a.id)}<option value={a.id}>{githubLabel(a)}</option>{/each}
+							{#each data.githubAccounts as a (a.id)}<option value={a.id}>{githubLabel(a)} ({githubKind(a).label})</option>{/each}
 							<option value="">None</option>
 						</select>
 					</div>

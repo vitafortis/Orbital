@@ -144,6 +144,7 @@ function migrate(h: DatabaseSync) {
 	add('linear_url', 'TEXT');
 	const ghCols = new Set((h.prepare(`SELECT name FROM pragma_table_info('github_accounts')`).all() as { name: string }[]).map((c) => c.name));
 	if (!ghCols.has('label')) h.exec('ALTER TABLE github_accounts ADD COLUMN label TEXT');
+	if (!ghCols.has('resource_owner')) h.exec('ALTER TABLE github_accounts ADD COLUMN resource_owner TEXT');
 	const accountCols = new Set((h.prepare(`SELECT name FROM pragma_table_info('claude_accounts')`).all() as { name: string }[]).map((c) => c.name));
 	if (!accountCols.has('config')) h.exec(`ALTER TABLE claude_accounts ADD COLUMN config TEXT NOT NULL DEFAULT '{}'`);
 	h.exec(`
@@ -483,6 +484,7 @@ function toGithubAccount(r: Row): GithubAccount {
 		kind: r.kind as GithubAccount['kind'],
 		scopes: (r.scopes as string) ?? null,
 		orgs: JSON.parse((r.orgs as string) || '[]'),
+		resourceOwner: (r.resource_owner as string) ?? null,
 		createdAt: r.created_at as string
 	};
 }
@@ -555,6 +557,10 @@ export function upsertGithubAccount(input: GithubAccountInput, opts: { label?: s
 
 export function setGithubLabel(id: string, label: string | null) {
 	db().prepare('UPDATE github_accounts SET label = ? WHERE id = ?').run(label || null, id);
+}
+
+export function setGithubResourceOwner(id: string, owner: string | null) {
+	db().prepare('UPDATE github_accounts SET resource_owner = ? WHERE id = ?').run(owner, id);
 }
 
 export function setGithubOrgs(id: string, orgs: string[]) {

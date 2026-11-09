@@ -6,7 +6,7 @@
 import { randomToken } from './crypto.ts';
 import { config } from './config.ts';
 import { BadRequest } from './http.ts';
-import { getGithubToken, getSettings, listGithubAccounts, setGithubOrgs, upsertGithubAccount, type GithubAccountInput } from './store.ts';
+import { getGithubAccount, getGithubToken, getSettings, listGithubAccounts, setGithubOrgs, setGithubResourceOwner, upsertGithubAccount, type GithubAccountInput } from './store.ts';
 import type { GithubAccount, GithubPull, GithubRepo, SessionPr, TokenAccess } from '#lib/types.ts';
 import { refreshGithubCredentials } from './sessions/github.ts';
 
@@ -88,7 +88,9 @@ export async function addGithubToken(token: string, kind: GithubAccount['kind'],
 	const account = upsertGithubAccount(input, opts);
 	repoCache.delete(account.id);
 	refreshGithubCredentials(account.id);
-	return account;
+	// Its repos say whose a fine-grained token is, and which orgs it can open.
+	await listRepos(account).catch(() => null);
+	return getGithubAccount(account.id) ?? account;
 }
 
 export async function refreshOrgs(account: GithubAccount): Promise<string[]> {
@@ -114,6 +116,15 @@ const toRepo = (r: GhRepo): GithubRepo => ({
 });
 
 const repoCache = new Map<string, { at: number; list: RepoList }>();
+
+/** Classic tokens report their scopes; fine-grained ones don't (and are limited to one owner). */
+export const isFineGrained = (a: Pick<GithubAccount, 'kind' | 'scopes'>) => a.kind === 'pat' && a.scopes === null;
+
+function mostCommon(values: string[]): string | null {
+	const n = new Map<string, number>();
+	for (const v of values) n.set(v, (n.get(v) ?? 0) + 1);
+	return [...n.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
+}
 
 /** A token's repositories, and why some may be missing from them. */
 export type RepoList = { repos: GithubRepo[]; notice: string | null };
@@ -184,6 +195,10 @@ export async function listRepos(account: GithubAccount, refresh = false): Promis
 		if (headers.get('x-github-sso')?.startsWith('partial-results')) notice = SSO_NOTICE;
 		for (const r of data) byName.set(r.full_name, toRepo(r));
 		if (data.length < 100) break;
+	}
+	if (isFineGrained(account)) {
+		const owner = mostCommon([...byName.values()].map((r) => r.owner));
+		if (owner && owner !== account.resourceOwner) setGithubResourceOwner(account.id, owner);
 	}
 	const orgs = new Set([...account.orgs, ...[...byName.values()].map((r) => r.owner)]);
 	orgs.delete(account.login);
