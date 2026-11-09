@@ -32,6 +32,7 @@
 - **AWS through SSO**: sign Orbital in to IAM Identity Center once, and give sessions AWS profiles, each one account and role. A session gets only those roles' short-lived keys, as the standard AWS files the CLI, SDKs and Terraform read, renewed while it runs; your sign-in never reaches it. The AWS CLI is in the session image.
 - **Sign-in your way**: a local admin account, plus single sign-on with any OpenID Connect provider (Authentik, Authelia, Keycloak, Pocket ID…), or your reverse proxy's forward auth, with email and group rules and admin/member roles. Or turn sign-in off behind a proxy that already does it. All set in the UI.
 - **Encrypted storage**: tokens and keys are sealed with AES-256-GCM and never sent back to the browser.
+- **Library**: give every Claude session the same tools, as MCP servers set up once: **Notion** through an internal integration (sessions see only the pages shared with it, and act as the integration, not as you), or any server by command or URL. Their secrets are stored encrypted and reach a session as a file only its user can read, passed to Claude with `--mcp-config`. Choose which model accounts' sessions get each one; only admins change them.
 - **Command palette**: `⌘K` (`Ctrl+K`) jumps to any session or page.
 - **Light and dark** themes, phone-friendly layout, multi-arch images (`amd64`, `arm64`).
 

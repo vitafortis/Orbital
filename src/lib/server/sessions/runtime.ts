@@ -36,6 +36,7 @@ import { agentSetup, supportsRemoteControl, type AgentSetup } from '../providers
 import { accountRel, backing, conversationsDir, ensureDirs, metaDir, mountSpec, sessionRel } from './storage.ts';
 import { AWS_ENV, writeAwsCredentials } from './aws.ts';
 import { GIT_ENV, writeGithubCredentials } from './github.ts';
+import { writeSessionMcp } from './mcp.ts';
 import { hasConversations } from './transcripts.ts';
 import type { Session, Settings } from '#lib/types.ts';
 
@@ -108,7 +109,13 @@ function githubEnv(accountId: string | null): string[] {
 }
 
 function writeLaunch(s: Session, agent: AgentSetup, launch: LaunchMode) {
-	const opts = { name: s.name, model: s.model, permissionMode: s.permissionMode, remoteControl: s.remoteControl && supportsRemoteControl(agent.account) };
+	const opts = {
+		name: s.name,
+		model: s.model,
+		permissionMode: s.permissionMode,
+		remoteControl: s.remoteControl && supportsRemoteControl(agent.account),
+		mcpConfig: agent.agent === 'claude' ? writeSessionMcp(s.id, s.accountId) : null
+	};
 	const args = agentArgs(agent.agent, opts, launch);
 	writeFileSync(join(metaDir(s.id), 'launch.json'), JSON.stringify({ agent: agent.agent, args, launch: launch.mode, at: new Date().toISOString() }, null, 2));
 }

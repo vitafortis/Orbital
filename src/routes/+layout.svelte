@@ -6,6 +6,7 @@
 	import { onMount } from 'svelte';
 	import {
 		LayoutDashboard,
+		Library,
 		Plus,
 		Moon,
 		Sun,
@@ -71,6 +72,7 @@
 	const nav = [
 		{ href: '/', label: 'Sessions', icon: LayoutDashboard },
 		{ href: '/automations', label: 'Automations', icon: Workflow },
+		{ href: '/library', label: 'Library', icon: Library },
 		{ href: '/accounts', label: 'Accounts', icon: KeyRound },
 		{ href: '/settings', label: 'Settings', icon: Settings }
 	];
