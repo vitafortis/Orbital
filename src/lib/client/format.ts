@@ -32,7 +32,9 @@ export function githubLabel(a: { label: string | null; login: string }): string 
  * only that org; a personal one only its user's repos; a classic token or a sign-in, whatever
  * its user can.
  */
-export function githubKind(a: { kind: 'pat' | 'oauth'; scopes: string | null; login: string; resourceOwner: string | null }): { label: string; org: string | null } {
+export function githubKind(a: { kind: 'pat' | 'oauth' | 'app'; scopes: string | null; login: string; resourceOwner: string | null }): { label: string; org: string | null } {
+	// An installation acts as the app's bot, on the one account it's installed on.
+	if (a.kind === 'app') return { label: `GitHub App · ${a.resourceOwner ?? 'not installed'}`, org: a.resourceOwner };
 	if (a.kind === 'oauth') return { label: 'GitHub sign-in', org: null };
 	if (a.scopes !== null) return { label: 'Classic token', org: null };
 	if (a.resourceOwner && a.resourceOwner.toLowerCase() !== a.login.toLowerCase()) return { label: `Org token · ${a.resourceOwner}`, org: a.resourceOwner };

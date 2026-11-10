@@ -170,7 +170,7 @@
 		};
 	});
 	const ghAccount = (id: string) => data.githubAccounts.find((a) => a.id === id);
-	const KIND_LABEL: Record<TokenAccess['kind'], string> = { 'fine-grained': 'Fine-grained token', classic: 'Classic token', 'sign-in': 'GitHub sign-in', unknown: 'Token' };
+	const KIND_LABEL: Record<TokenAccess['kind'], string> = { 'fine-grained': 'Fine-grained token', classic: 'Classic token', 'sign-in': 'GitHub sign-in', app: 'GitHub App', unknown: 'Token' };
 	function facts(t: TokenAccess): string[] {
 		return [
 			ghAccount(t.accountId) ? githubKind(ghAccount(t.accountId)!).label : KIND_LABEL[t.kind],
