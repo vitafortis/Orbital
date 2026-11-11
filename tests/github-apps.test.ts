@@ -115,3 +115,29 @@ test("a GitHub App's expiring sign-in is renewed with its refresh token and the 
 	assert.doesNotMatch(onDisk, /0123456789abcdef0123456789abcdef01234567|ghu_new|ghr_2/);
 	gh.restore();
 });
+
+test("for an app that can't open a repo, Orbital says what the installation has and what's missing", async () => {
+	const repo = (full: string) => ({ full_name: full, name: full.split('/')[1], owner: { login: full.split('/')[0] }, private: true, default_branch: 'main', description: null, pushed_at: null, html_url: '' });
+	const gh = fakeGithub((c) => {
+		if (c.path === '/app') return Response.json({ slug: 'orbital-ironclad', name: 'Orbital for Ironclad' });
+		if (c.path.startsWith('/app/installations?')) return Response.json([{ id: 42, account: { login: 'ironclad', type: 'Organization', avatar_url: null } }]);
+		if (c.path === '/app/installations/42/access_tokens') return Response.json({ token: 'ghs_a', expires_at: new Date(Date.now() + 3600_000).toISOString() });
+		if (c.path === '/app/installations/42') return Response.json({ account: { login: 'ironclad' }, repository_selection: 'selected', permissions: { contents: 'write', metadata: 'read' } });
+		if (c.path.startsWith('/installation/repositories')) return Response.json({ total_count: 1, repositories: [repo('ironclad/api')] });
+		return Response.json({ message: 'Not Found' }, { status: 404 });
+	});
+	const [a] = await github.addGithubApp('123', pem, null);
+	const r = await github.checkToken(a, 'ironclad/web');
+	assert.equal(r.kind, 'GitHub App installation');
+	assert.deepEqual(
+		r.checks.map((c) => [c.label, c.status, c.answer]),
+		[
+			['The installation', 200, 'on ironclad · selected repositories only · contents: write, metadata: read'],
+			['Repositories it was given', 200, '1: ironclad/api · ironclad/web is not among them'],
+			['ironclad/web', 404, 'Not Found']
+		]
+	);
+	await assert.rejects(github.lookupRepo(a, 'ironclad/web'), /installation on ironclad doesn't include ironclad\/web.*Repository access/);
+	await assert.rejects(github.lookupRepo(a, 'acme/api'), /installed on ironclad, not acme/);
+	gh.restore();
+});

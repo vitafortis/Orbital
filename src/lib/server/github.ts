@@ -288,6 +288,12 @@ async function missReason(account: GithubAccount, fullName: string, res: Respons
 	if (ssoUrl) return `${owner} uses single sign-on: authorize this token for it at ${ssoUrl}, then try again.`;
 	const message = ((await res.json().catch(() => ({}))) as { message?: string }).message;
 	if (res.status !== 404) return `GitHub: ${message ?? res.statusText}`;
+	if (account.kind === 'app') {
+		const on = account.resourceOwner;
+		return on && on.toLowerCase() !== owner.toLowerCase()
+			? `${account.name ?? 'The app'} is installed on ${on}, not ${owner}. Install it on ${owner} too (the app's page on GitHub → Install App), then add the app again here.`
+			: `${account.name ?? 'The app'}'s installation on ${owner} doesn't include ${fullName}. On GitHub: ${owner} → Settings → GitHub Apps → ${account.name ?? 'the app'} → Configure → Repository access, add it. Check access here shows what the installation has.`;
+	}
 	// Facts only: what GitHub returned, not a guess at the token's settings.
 	const listed = repoCache.get(account.id)?.list.repos;
 	if (listed?.length && !listed.some((r) => r.private)) {
@@ -640,8 +646,64 @@ const TELLING = ['x-oauth-scopes', 'x-accepted-oauth-scopes', 'x-accepted-github
  * What GitHub answers this token, as it answers: no interpretation. Which token is stored
  * (its start and end), who it is, how many private repos it sees, and the repo asked about.
  */
+/**
+ * What GitHub says about a GitHub App's installation: the account it's on, which repositories it
+ * was given, its permissions (as accepted by the account's owners), and whether it has the repo.
+ */
+async function checkInstallation(account: GithubAccount, repo: string | null): Promise<TokenCheck[]> {
+	const token = getGithubToken(account.id) ?? '';
+	const r = getGithubRenewal(account.id);
+	const checks: TokenCheck[] = [];
+	const push = (label: string, path: string, res: Response, answer: string) =>
+		checks.push({ label, path, status: res.status, answer, headers: Object.fromEntries(TELLING.flatMap((h) => (res.headers.get(h) ? [[h, res.headers.get(h)!]] : []))) });
+	if (r?.kind === 'app') {
+		const path = `/app/installations/${r.installationId}`;
+		const res = await ghFetch(appJwt(r.appId, r.privateKey), path);
+		const b = (await res.json().catch(() => ({}))) as {
+			message?: string;
+			account?: { login: string };
+			repository_selection?: string;
+			permissions?: Record<string, string>;
+			suspended_at?: string | null;
+		};
+		const perms = Object.entries(b.permissions ?? {})
+			.map(([k, v]) => `${k.replace(/_/g, ' ')}: ${v}`)
+			.join(', ');
+		push(
+			'The installation',
+			path,
+			res,
+			res.ok
+				? `on ${b.account?.login} · ${b.repository_selection === 'all' ? 'all repositories' : 'selected repositories only'}${b.suspended_at ? ' · SUSPENDED' : ''} · ${perms || 'no permissions'}`
+				: (b.message ?? res.statusText)
+		);
+	}
+	const listPath = '/installation/repositories?per_page=100';
+	const list = await ghFetch(token, listPath);
+	const lb = (await list.json().catch(() => ({}))) as { message?: string; total_count?: number; repositories?: GhRepo[] };
+	const names = (lb.repositories ?? []).map((x) => x.full_name);
+	const has = repo ? names.some((n) => n.toLowerCase() === repo.toLowerCase()) : null;
+	push(
+		'Repositories it was given',
+		listPath,
+		list,
+		list.ok
+			? `${lb.total_count ?? names.length}${names.length ? `: ${names.slice(0, 8).join(', ')}${names.length > 8 ? '…' : ''}` : ''}${repo ? (has ? ` · includes ${repo}` : ` · ${repo} is not among them${(lb.total_count ?? 0) > 100 ? ' (in the first 100)' : ''}`) : ''}`
+			: (lb.message ?? list.statusText)
+	);
+	if (repo) {
+		const res = await ghFetch(token, `/repos/${repo}`);
+		const b = (await res.json().catch(() => ({}))) as { message?: string; full_name?: string; private?: boolean };
+		push(repo, `/repos/${repo}`, res, b.full_name ? `${b.full_name} (${b.private ? 'private' : 'public'})` : (b.message ?? res.statusText));
+	}
+	return checks;
+}
+
 export async function checkToken(account: GithubAccount, repo: string | null) {
 	const token = getGithubToken(account.id) ?? '';
+	if (account.kind === 'app') {
+		return { kind: 'GitHub App installation', token: token ? `${token.slice(0, 8)}…${token.slice(-4)}` : '(none stored)', checks: await checkInstallation(account, repo) };
+	}
 	const kind = token.startsWith('github_pat_') ? 'Fine-grained token' : token.startsWith('ghp_') ? 'Classic token' : token.startsWith('gho_') ? 'GitHub sign-in' : 'Unknown kind';
 	const owner = repo?.split('/')[0];
 	const probes: [string, string][] = [
