@@ -5,6 +5,7 @@ import { randomUUID } from 'node:crypto';
 import { config } from './config.ts';
 import { decrypt, encrypt } from './crypto.ts';
 import { slugify } from '#lib/launch.ts';
+import { DEFAULT_REPLY_STYLE, type ReplyStyle } from '#lib/mcp.ts';
 import { ACCOUNT_KINDS, kindAgent } from '#lib/providers.ts';
 import type {
 	ModelAccount,
@@ -1130,4 +1131,15 @@ export function updateMcpServer(id: string, input: McpServerInput, secrets?: Mcp
 
 export function deleteMcpServer(id: string): boolean {
 	return db().prepare('DELETE FROM mcp_servers WHERE id = ?').run(id).changes > 0;
+}
+
+// ── Library: reply style ───────────────────────────────────────────────
+
+export function getReplyStyle(): ReplyStyle {
+	const v = getKv<Partial<ReplyStyle>>('replyStyle', {});
+	return { enabled: v.enabled !== false, text: v.text?.trim() || DEFAULT_REPLY_STYLE };
+}
+
+export function setReplyStyle(style: ReplyStyle) {
+	setKv('replyStyle', { enabled: style.enabled, text: style.text.trim() === DEFAULT_REPLY_STYLE ? '' : style.text.trim() });
 }

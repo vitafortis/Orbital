@@ -276,12 +276,11 @@ export interface ReadTurn {
 	parts: ReadPart[];
 }
 
-/** A conversation for the Read tab, with the list items you ticked off. */
+/** A conversation for the Read tab. */
 export interface ReadConversation {
 	conversationId: string;
 	updatedAt: string;
 	turns: ReadTurn[];
-	ticked: string[];
 }
 
 export interface Conversation {
@@ -302,6 +301,33 @@ export interface GitState {
 	deletions: number;
 }
 
+/**
+ * Something a person has to do for a session: a login, a command to run on their own machine
+ * or in the Shell tab, an approval. The agent adds them (Orbital's add_todo_for_user tool), or
+ * you do.
+ */
+export type TodoWhere = 'your-machine' | 'session-shell' | 'browser' | 'other';
+export interface TodoItem {
+	id: string;
+	sessionId: string;
+	title: string;
+	/** The exact command, if there is one. */
+	command: string | null;
+	where: TodoWhere;
+	why: string | null;
+	source: 'agent' | 'you';
+	at: string;
+	doneAt: string | null;
+}
+
+/** What Orbital itself knows needs a person, with where to fix it. */
+export interface SystemTodo {
+	id: string;
+	title: string;
+	why: string;
+	href: string;
+}
+
 /** Everything the overview and session page show live, per session. */
 export interface SessionLive {
 	id: string;
@@ -318,6 +344,8 @@ export interface SessionLive {
 	aiSummary: { text: string; at: string } | null;
 	/** The AWS credentials it was given. */
 	aws: SessionAws[];
+	/** Its To do items still open. */
+	todos: TodoItem[];
 	at: string;
 }
 
