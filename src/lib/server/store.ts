@@ -146,6 +146,9 @@ function migrate(h: DatabaseSync) {
 	const ghCols = new Set((h.prepare(`SELECT name FROM pragma_table_info('github_accounts')`).all() as { name: string }[]).map((c) => c.name));
 	if (!ghCols.has('label')) h.exec('ALTER TABLE github_accounts ADD COLUMN label TEXT');
 	if (!ghCols.has('resource_owner')) h.exec('ALTER TABLE github_accounts ADD COLUMN resource_owner TEXT');
+	if (!ghCols.has('renewal')) h.exec('ALTER TABLE github_accounts ADD COLUMN renewal TEXT');
+	if (!ghCols.has('expires_at')) h.exec('ALTER TABLE github_accounts ADD COLUMN expires_at TEXT');
+	if (!ghCols.has('renew_error')) h.exec('ALTER TABLE github_accounts ADD COLUMN renew_error TEXT');
 	const accountCols = new Set((h.prepare(`SELECT name FROM pragma_table_info('claude_accounts')`).all() as { name: string }[]).map((c) => c.name));
 	if (!accountCols.has('config')) h.exec(`ALTER TABLE claude_accounts ADD COLUMN config TEXT NOT NULL DEFAULT '{}'`);
 	h.exec(`
@@ -278,10 +281,15 @@ const RENAMED_IMAGE = /^ghcr\.io\/vitafortis\/cc-modern-session(?=[:@]|$)/;
 
 export function getSettings(): Settings {
 	const s = { ...defaultSettings(), ...getKv<Partial<Settings>>('settings', {}) };
-	return { ...s, sessionImage: s.sessionImage.replace(RENAMED_IMAGE, 'ghcr.io/vitafortis/orbital-session'), agentsImage: s.agentsImage.replace(RENAMED_IMAGE, 'ghcr.io/vitafortis/orbital-session') };
+	return {
+		...s,
+		sessionImage: s.sessionImage.replace(RENAMED_IMAGE, 'ghcr.io/vitafortis/orbital-session'),
+		agentsImage: s.agentsImage.replace(RENAMED_IMAGE, 'ghcr.io/vitafortis/orbital-session'),
+		githubClientSecretSet: !!getKv<string | null>(GITHUB_CLIENT_SECRET, null)
+	};
 }
 
-export function saveSettings(settings: Settings) {
+export function saveSettings({ githubClientSecretSet: _, ...settings }: Settings) {
 	setKv('settings', settings);
 }
 
@@ -486,6 +494,9 @@ function toGithubAccount(r: Row): GithubAccount {
 		scopes: (r.scopes as string) ?? null,
 		orgs: JSON.parse((r.orgs as string) || '[]'),
 		resourceOwner: (r.resource_owner as string) ?? null,
+		expiresAt: (r.expires_at as string) ?? null,
+		renews: !!r.renewal,
+		renewError: (r.renew_error as string) ?? null,
 		createdAt: r.created_at as string
 	};
 }
@@ -504,6 +515,41 @@ export function getGithubToken(id: string): string | undefined {
 	return r ? decrypt(r.secret, `github:${id}`) : undefined;
 }
 
+/**
+ * How a connection gets its next token: a sign-in's refresh token, or a GitHub App's key and
+ * installation (installation tokens last an hour).
+ */
+export type GithubRenewal =
+	| { kind: 'refresh'; refreshToken: string; refreshExpiresAt: string | null }
+	| { kind: 'app'; appId: string; privateKey: string; installationId: number };
+
+export function getGithubRenewal(id: string): GithubRenewal | null {
+	const r = db().prepare('SELECT renewal FROM github_accounts WHERE id = ?').get(id) as { renewal: string | null } | undefined;
+	return r?.renewal ? (JSON.parse(decrypt(r.renewal, `github-renewal:${id}`)) as GithubRenewal) : null;
+}
+
+/** A renewed token (and, for a sign-in, its new refresh token). */
+export function setGithubToken(id: string, token: string, expiresAt: string | null, renewal?: GithubRenewal | null) {
+	db().prepare('UPDATE github_accounts SET secret = ?, expires_at = ?, renew_error = NULL WHERE id = ?').run(encrypt(token, `github:${id}`), expiresAt, id);
+	if (renewal !== undefined) db().prepare('UPDATE github_accounts SET renewal = ? WHERE id = ?').run(renewal ? encrypt(JSON.stringify(renewal), `github-renewal:${id}`) : null, id);
+}
+
+export function setGithubRenewError(id: string, error: string | null) {
+	db().prepare('UPDATE github_accounts SET renew_error = ? WHERE id = ?').run(error, id);
+}
+
+const GITHUB_CLIENT_SECRET = 'githubClientSecret';
+
+/** The GitHub app's client secret, which GitHub asks for to renew a sign-in. */
+export function getGithubClientSecret(): string | null {
+	const sealed = getKv<string | null>(GITHUB_CLIENT_SECRET, null);
+	return sealed ? decrypt(sealed, 'github-client-secret') : null;
+}
+
+export function setGithubClientSecret(secret: string | null) {
+	setKv(GITHUB_CLIENT_SECRET, secret ? encrypt(secret, 'github-client-secret') : null);
+}
+
 export function getGitIdentity(id: string): { name: string; email: string } | undefined {
 	const r = db().prepare('SELECT git_name, git_email FROM github_accounts WHERE id = ?').get(id) as Row | undefined;
 	return r?.git_name && r.git_email ? { name: r.git_name as string, email: r.git_email as string } : undefined;
@@ -519,6 +565,8 @@ export type GithubAccountInput = {
 	orgs: string[];
 	gitName: string;
 	gitEmail: string;
+	expiresAt?: string | null;
+	renewal?: GithubRenewal | null;
 };
 
 /**
@@ -530,9 +578,15 @@ export type GithubAccountInput = {
 export function upsertGithubAccount(input: GithubAccountInput, opts: { label?: string | null; replace?: string } = {}): GithubAccount {
 	let id = opts.replace;
 	if (!id) {
-		const same = (db().prepare('SELECT id, kind FROM github_accounts WHERE login = ? COLLATE NOCASE').all(input.login) as { id: string; kind: string }[]).find(
-			(r) => (input.kind === 'oauth' && r.kind === 'oauth') || getGithubToken(r.id) === input.token
-		);
+		const app = input.renewal?.kind === 'app' ? input.renewal : null;
+		const same = (db().prepare('SELECT id, kind FROM github_accounts WHERE login = ? COLLATE NOCASE').all(input.login) as { id: string; kind: string }[]).find((r) => {
+			// An app installation is the same connection again; tokens change every hour.
+			if (app) {
+				const had = r.kind === 'app' ? getGithubRenewal(r.id) : null;
+				return had?.kind === 'app' && had.appId === app.appId && had.installationId === app.installationId;
+			}
+			return (input.kind === 'oauth' && r.kind === 'oauth') || getGithubToken(r.id) === input.token;
+		});
 		id = same?.id;
 	}
 	const existing = !!id && !!getGithubAccount(id);
@@ -553,6 +607,7 @@ export function upsertGithubAccount(input: GithubAccountInput, opts: { label?: s
 			)
 			.run(id, opts.label ?? null, input.login, input.name, input.avatarUrl, input.kind, secret, input.scopes, JSON.stringify(input.orgs), input.gitName, input.gitEmail, now());
 	}
+	setGithubToken(id, input.token, input.expiresAt ?? null, input.renewal ?? null);
 	return getGithubAccount(id)!;
 }
 

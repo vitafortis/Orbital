@@ -3,6 +3,7 @@
 	import { invalidateAll } from '$app/navigation';
 	import { onDestroy, onMount, tick } from 'svelte';
 	import {
+		Blocks,
 		Building2,
 		CircleCheck,
 		CircleHelp,
@@ -11,6 +12,7 @@
 		ChevronLeft,
 		ChevronRight,
 		ChevronUp,
+		CircleAlert,
 		CircleX,
 		ExternalLink,
 		Layers,
@@ -448,6 +450,50 @@
 		}, device.interval * 1000);
 	}
 
+	// GitHub Apps: for organizations that allow apps but not personal tokens. Each installation
+	// is a connection acting as the app's bot.
+	let addingApp = $state(false);
+	let app = $state({ appId: '', privateKey: '', label: '' });
+	let appError = $state('');
+	let appSaving = $state(false);
+	function openApp() {
+		app = { appId: '', privateKey: '', label: '' };
+		appError = '';
+		addingApp = true;
+	}
+	async function readKey(e: Event & { currentTarget: HTMLInputElement }) {
+		const f = e.currentTarget.files?.[0];
+		if (f) app.privateKey = await f.text();
+	}
+	async function addApp(e: SubmitEvent) {
+		e.preventDefault();
+		appSaving = true;
+		appError = '';
+		try {
+			const r = await api.post<{ accounts: GithubAccount[] }>('/api/github-accounts/apps', { appId: app.appId.trim(), privateKey: app.privateKey, label: app.label.trim() || null });
+			addingApp = false;
+			toast('success', `Connected ${r.accounts[0]?.name ?? 'the app'}`, `Installed on ${r.accounts.map((a) => a.resourceOwner).join(', ')}.`);
+			await invalidateAll();
+		} catch (err) {
+			appError = errorMessage(err);
+		}
+		appSaving = false;
+	}
+
+	let renewing = $state<string | null>(null);
+	async function renewNow(a: GithubAccount) {
+		renewing = a.id;
+		try {
+			await api.post(`/api/github-accounts/${a.id}/renew`);
+			toast('success', `Renewed ${githubLabel(a)}`);
+			await invalidateAll();
+		} catch (err) {
+			toast('error', `Couldn't renew ${githubLabel(a)}`, errorMessage(err));
+		}
+		renewing = null;
+	}
+	const clock = (iso: string) => new Date(iso).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+
 	async function refreshGithub(a: GithubAccount) {
 		try {
 			await api.post(`/api/github-accounts/${a.id}`);
@@ -590,6 +636,7 @@
 				</div>
 				<div class="flex gap-2">
 					{#if data.deviceFlow}<button class="btn btn-primary btn-sm" onclick={startDevice}><BrandIcon brand="github" class="size-4" />Sign in with GitHub</button>{/if}
+					<button class="btn btn-secondary btn-sm" onclick={openApp}><Blocks />Add a GitHub App</button>
 					<button class="btn btn-secondary btn-sm" onclick={() => openToken(null)}><Plus />Add a token</button>
 				</div>
 			</div>
@@ -607,6 +654,16 @@
 								{#each a.orgs as o (o)}<span class="badge"><Building2 />{o}</span>{:else}<span>No organizations visible</span>{/each}
 								{#if a.scopes}<span class="font-mono text-[0.6875rem]">· {a.scopes}</span>{/if}
 							</p>
+							{#if a.renewError}
+								<p class="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-warning">
+									<CircleAlert class="size-3.5" />{a.renewError}
+									<button class="text-primary hover:underline disabled:opacity-50" disabled={renewing === a.id} onclick={() => renewNow(a)}>Try again</button>
+								</p>
+							{:else if a.renews && a.expiresAt}
+								<p class="mt-1 text-xs text-muted-foreground">Renews itself{a.kind === 'app' ? ' every hour' : ''} · this token is good until {clock(a.expiresAt)}</p>
+							{:else if a.expiresAt}
+								<p class="mt-1 text-xs text-muted-foreground">Expires {clock(a.expiresAt)} and can't renew itself: sign in again then.</p>
+							{/if}
 						</div>
 						<div class="ml-auto flex items-center gap-1">
 							<button class="btn btn-ghost btn-icon btn-sm" title="Refresh organizations" onclick={() => refreshGithub(a)}><RefreshCw /></button>
@@ -831,6 +888,9 @@
 			<input id="tlabel" class="input" placeholder="Work org, Personal, Read-only…" maxlength="80" bind:value={tokenLabel} />
 			<p class="mt-1 text-xs text-muted-foreground">Shown when you pick a GitHub account. Optional; without one, the GitHub login is shown.</p>
 		</div>
+		{#if editingGithub?.kind === 'app'}
+			<p class="text-[0.8125rem] text-muted-foreground">A GitHub App's token renews itself. To use another key, add the app again.</p>
+		{:else}
 		{#if editingGithub}
 			<p class="text-[0.8125rem] text-muted-foreground">To swap in a new token (say the old one expired), paste it below. Sessions and automations using this connection keep it.</p>
 		{:else}
@@ -845,6 +905,7 @@
 			<label class="label" for="tok">{editingGithub ? 'New token' : 'Token'}</label>
 			<input id="tok" class="input font-mono text-xs" type="password" autocomplete="off" placeholder={editingGithub ? 'Leave empty to keep the current token' : 'github_pat_… or ghp_…'} bind:value={token} required={!editingGithub} />
 		</div>
+		{/if}
 		{#if tokenError}<p class="text-xs text-danger">{tokenError}</p>{/if}
 	</form>
 	{#snippet footer()}
@@ -862,4 +923,37 @@
 			<p class="flex items-center justify-center gap-2 text-xs text-muted-foreground"><LoaderCircle class="size-3.5 animate-spin" />Waiting for approval…</p>
 		</div>
 	{/if}
+</Dialog>
+
+<Dialog bind:open={addingApp} title="Add a GitHub App" description="For organizations that allow GitHub Apps but not personal tokens. Sessions act as the app's bot, on the repos it's installed on." width="max-w-xl">
+	<form id="add-app" class="space-y-3" onsubmit={addApp}>
+		<ol class="list-decimal space-y-1 rounded-lg border border-border bg-surface py-2.5 pr-3 pl-7 text-xs text-muted-foreground">
+			<li>On GitHub, <span class="text-foreground">Settings → Developer settings → GitHub Apps → New GitHub App</span> (under the organization, or yourself). No webhook needed.</li>
+			<li>Repository permissions: <span class="text-foreground">Contents, Pull requests, Workflows</span> read and write; <span class="text-foreground">Metadata</span> read. Add <span class="text-foreground">Administration</span> to create repos.</li>
+			<li>Generate a <span class="text-foreground">private key</span>, then <span class="text-foreground">Install App</span> on the organization and pick its repos.</li>
+		</ol>
+		<div class="grid gap-3 sm:grid-cols-[9rem_1fr]">
+			<div>
+				<label class="label" for="app-id">App ID</label>
+				<input id="app-id" class="input font-mono text-xs" inputmode="numeric" placeholder="123456" bind:value={app.appId} required />
+			</div>
+			<div>
+				<label class="label" for="app-label">Name <span class="font-normal text-muted-foreground/70">(optional)</span></label>
+				<input id="app-label" class="input" placeholder="The app's name" maxlength="80" bind:value={app.label} />
+			</div>
+		</div>
+		<div>
+			<label class="label flex items-center justify-between" for="app-key">
+				Private key
+				<span class="font-normal text-primary"><input type="file" accept=".pem" class="hidden" id="app-key-file" onchange={readKey} /><label for="app-key-file" class="cursor-pointer hover:underline">Choose the .pem file</label></span>
+			</label>
+			<textarea id="app-key" class="input min-h-28 font-mono text-[0.6875rem]" placeholder={'-----BEGIN RSA PRIVATE KEY-----\n…\n-----END RSA PRIVATE KEY-----'} bind:value={app.privateKey} required></textarea>
+			<p class="mt-1 text-xs text-muted-foreground">Kept encrypted here. Orbital uses it to get an hour-long token for each installation, and renews it; the key never reaches a session.</p>
+		</div>
+		{#if appError}<p class="text-xs text-danger">{appError}</p>{/if}
+	</form>
+	{#snippet footer()}
+		<button class="btn btn-ghost" onclick={() => (addingApp = false)}>Cancel</button>
+		<button class="btn btn-primary" form="add-app" disabled={appSaving}>{#if appSaving}<LoaderCircle class="animate-spin" />{/if}Connect</button>
+	{/snippet}
 </Dialog>
