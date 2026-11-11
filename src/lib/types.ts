@@ -86,6 +86,12 @@ export interface GithubAccount {
 	scopes: string | null;
 	/** Organizations the token can see. */
 	orgs: string[];
+	/**
+	 * A fine-grained token's resource owner: the user (a personal token) or the organization (an
+	 * org token) it was made for, as seen from the repos it lists; null until known, and for
+	 * classic tokens and sign-ins, which reach whatever their user can.
+	 */
+	resourceOwner: string | null;
 	createdAt: string;
 }
 

@@ -176,3 +176,30 @@ test('rankTokens prefers the stricter token when none reports write access', () 
 		['narrow', 'wide', 'classic']
 	);
 });
+
+test("an org-scoped token that can't list its orgs still offers its org as a new repo's owner", async () => {
+	const t = store.upsertGithubAccount(input('github_pat_org'), { label: 'Armistice' });
+	assert.deepEqual(t.orgs, []);
+	const restore = fakeGithub((url) => {
+		if (url.pathname === '/user/repos') return Response.json([repoJson('armistice/tierity'), repoJson('someone/shared')]);
+		if (url.pathname === '/orgs/armistice/repos') return Response.json([repoJson('armistice/tierity'), repoJson('armistice/site')]);
+		// A user, not an org.
+		return new Response('{"message":"Not Found"}', { status: 404 });
+	});
+	const owners = await github.repoOwners();
+	restore();
+	assert.deepEqual(owners.find((o) => o.accountId === t.id)?.orgs, ['armistice']);
+	assert.deepEqual(store.getGithubAccount(t.id)?.orgs, ['armistice']);
+	// Fine-grained, and most of what it lists is armistice's: it's armistice's token.
+	assert.equal(store.getGithubAccount(t.id)?.resourceOwner, 'armistice');
+});
+
+test('githubKind tells org tokens from personal ones, classic tokens and sign-ins', async () => {
+	const { githubKind } = await import('#lib/client/format.ts');
+	const a = { kind: 'pat' as const, scopes: null, login: 'nathan', resourceOwner: null };
+	assert.deepEqual(githubKind({ ...a, resourceOwner: 'armistice' }), { label: 'Org token · armistice', org: 'armistice' });
+	assert.deepEqual(githubKind({ ...a, resourceOwner: 'nathan' }), { label: 'Personal token', org: null });
+	assert.deepEqual(githubKind(a), { label: 'Fine-grained token', org: null });
+	assert.deepEqual(githubKind({ ...a, scopes: 'repo, read:org' }), { label: 'Classic token', org: null });
+	assert.deepEqual(githubKind({ ...a, kind: 'oauth', scopes: 'repo' }), { label: 'GitHub sign-in', org: null });
+});

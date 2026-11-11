@@ -26,3 +26,15 @@ export const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n ==
 export function githubLabel(a: { label: string | null; login: string }): string {
 	return a.label ? `${a.label} · ${a.login}` : a.login;
 }
+
+/**
+ * What kind of GitHub connection it is, and whose: an organization's fine-grained token reaches
+ * only that org; a personal one only its user's repos; a classic token or a sign-in, whatever
+ * its user can.
+ */
+export function githubKind(a: { kind: 'pat' | 'oauth'; scopes: string | null; login: string; resourceOwner: string | null }): { label: string; org: string | null } {
+	if (a.kind === 'oauth') return { label: 'GitHub sign-in', org: null };
+	if (a.scopes !== null) return { label: 'Classic token', org: null };
+	if (a.resourceOwner && a.resourceOwner.toLowerCase() !== a.login.toLowerCase()) return { label: `Org token · ${a.resourceOwner}`, org: a.resourceOwner };
+	return { label: a.resourceOwner ? 'Personal token' : 'Fine-grained token', org: null };
+}
