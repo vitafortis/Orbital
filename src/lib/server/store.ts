@@ -149,6 +149,7 @@ function migrate(h: DatabaseSync) {
 	if (!ghCols.has('renewal')) h.exec('ALTER TABLE github_accounts ADD COLUMN renewal TEXT');
 	if (!ghCols.has('expires_at')) h.exec('ALTER TABLE github_accounts ADD COLUMN expires_at TEXT');
 	if (!ghCols.has('renew_error')) h.exec('ALTER TABLE github_accounts ADD COLUMN renew_error TEXT');
+	if (!ghCols.has('permissions')) h.exec('ALTER TABLE github_accounts ADD COLUMN permissions TEXT');
 	const accountCols = new Set((h.prepare(`SELECT name FROM pragma_table_info('claude_accounts')`).all() as { name: string }[]).map((c) => c.name));
 	if (!accountCols.has('config')) h.exec(`ALTER TABLE claude_accounts ADD COLUMN config TEXT NOT NULL DEFAULT '{}'`);
 	h.exec(`
@@ -497,6 +498,7 @@ function toGithubAccount(r: Row): GithubAccount {
 		expiresAt: (r.expires_at as string) ?? null,
 		renews: !!r.renewal,
 		renewError: (r.renew_error as string) ?? null,
+		permissions: r.permissions ? (JSON.parse(r.permissions as string) as Record<string, string>) : null,
 		createdAt: r.created_at as string
 	};
 }
@@ -532,6 +534,10 @@ export function getGithubRenewal(id: string): GithubRenewal | null {
 export function setGithubToken(id: string, token: string, expiresAt: string | null, renewal?: GithubRenewal | null) {
 	db().prepare('UPDATE github_accounts SET secret = ?, expires_at = ?, renew_error = NULL WHERE id = ?').run(encrypt(token, `github:${id}`), expiresAt, id);
 	if (renewal !== undefined) db().prepare('UPDATE github_accounts SET renewal = ? WHERE id = ?').run(renewal ? encrypt(JSON.stringify(renewal), `github-renewal:${id}`) : null, id);
+}
+
+export function setGithubPermissions(id: string, permissions: Record<string, string> | null) {
+	db().prepare('UPDATE github_accounts SET permissions = ? WHERE id = ?').run(permissions ? JSON.stringify(permissions) : null, id);
 }
 
 export function setGithubRenewError(id: string, error: string | null) {

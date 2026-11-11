@@ -33,6 +33,7 @@ import {
 	setSessionState
 } from '../store.ts';
 import { agentArgs, sessionWorkdir, slugify, type LaunchMode } from '#lib/launch.ts';
+import { accessNote, githubAccess } from '#lib/github-access.ts';
 import { agentSetup, supportsRemoteControl, type AgentSetup } from '../providers.ts';
 import { accountRel, backing, conversationsDir, ensureDirs, metaDir, mountSpec, sessionRel } from './storage.ts';
 import { AWS_ENV, writeAwsCredentials } from './aws.ts';
@@ -109,15 +110,25 @@ function githubEnv(accountId: string | null): string[] {
 	];
 }
 
-function writeLaunch(s: Session, agent: AgentSetup, launch: LaunchMode) {
+/**
+ * What Orbital adds to Claude's system prompt: the Library's reply style, and what its GitHub
+ * access can't do (a read-only GitHub App), so it doesn't spend turns trying to push.
+ */
+export function systemPromptFor(s: Pick<Session, 'githubAccountId'>): string | null {
 	const replyStyle = getReplyStyle();
+	const github = s.githubAccountId ? getGithubAccount(s.githubAccountId) : undefined;
+	const parts = [replyStyle.enabled ? replyStyle.text : null, github ? accessNote(githubAccess(github)) : null].filter(Boolean);
+	return parts.length ? parts.join('\n\n') : null;
+}
+
+function writeLaunch(s: Session, agent: AgentSetup, launch: LaunchMode) {
 	const opts = {
 		name: s.name,
 		model: s.model,
 		permissionMode: s.permissionMode,
 		remoteControl: s.remoteControl && supportsRemoteControl(agent.account),
 		mcpConfig: agent.agent === 'claude' ? writeSessionMcp(s.id, s.accountId) : null,
-		appendSystemPrompt: agent.agent === 'claude' && replyStyle.enabled ? replyStyle.text : null
+		appendSystemPrompt: agent.agent === 'claude' ? systemPromptFor(s) : null
 	};
 	const args = agentArgs(agent.agent, opts, launch);
 	writeFileSync(join(metaDir(s.id), 'launch.json'), JSON.stringify({ agent: agent.agent, args, launch: launch.mode, at: new Date().toISOString() }, null, 2));

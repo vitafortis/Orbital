@@ -147,3 +147,42 @@ test("when GitHub turns the app down, its own reason is in the message", async (
 	await assert.rejects(github.addGithubApp('123', pem, null), /turned the app down\. GitHub says: “'Issued at' claim.*clock is right/);
 	gh.restore();
 });
+
+test("a read-only app is labelled so, and its sessions' Claude is told not to push", async () => {
+	const { githubAccess, accessNote } = await import('#lib/github-access.ts');
+	const { systemPromptFor } = await import('#lib/server/sessions/runtime.ts');
+	let perms: Record<string, string> = { contents: 'read', pull_requests: 'read', metadata: 'read' };
+	const gh = fakeGithub((c) => {
+		if (c.path === '/app') return Response.json({ slug: 'reader', name: 'Reader' });
+		if (c.path.startsWith('/app/installations?')) return Response.json([{ id: 7, account: { login: 'acme', type: 'Organization', avatar_url: null } }]);
+		if (c.path === '/app/installations/7/access_tokens') return Response.json({ token: 'ghs_r', expires_at: new Date(Date.now() + 5 * 60_000).toISOString(), permissions: perms });
+		return Response.json({ message: 'Not Found' }, { status: 404 });
+	});
+	const [a] = await github.addGithubApp('77', pem, null);
+	assert.deepEqual(a.permissions, perms);
+	assert.equal(githubAccess(a), 'read');
+
+	store.setReplyStyle({ enabled: false, text: '' });
+	assert.equal(systemPromptFor({ githubAccountId: a.id }), accessNote('read'));
+	store.setReplyStyle({ enabled: true, text: 'Be brief.' });
+	assert.equal(systemPromptFor({ githubAccountId: a.id }), `Be brief.\n\n${accessNote('read')}`);
+	assert.equal(systemPromptFor({ githubAccountId: null }), 'Be brief.');
+
+	// The owner accepts write on pull requests: renewing picks it up.
+	perms = { contents: 'read', pull_requests: 'write', metadata: 'read' };
+	await github.renewGithubToken(a.id);
+	assert.equal(githubAccess(store.getGithubAccount(a.id)!), 'review');
+	assert.match(systemPromptFor({ githubAccountId: a.id })!, /review and comment on pull requests/);
+	perms = { contents: 'write', pull_requests: 'write' };
+	await github.renewGithubToken(a.id);
+	assert.equal(systemPromptFor({ githubAccountId: a.id }), 'Be brief.');
+	// Tokens and sign-ins don't say: nothing is assumed.
+	assert.equal(githubAccess({ kind: 'pat', permissions: null }), null);
+	gh.restore();
+});
+
+test("a private key Orbital can't sign with fails in words, not OpenSSL's", async () => {
+	const a = store.upsertGithubAccount({ login: 'x[bot]', name: 'X', avatarUrl: null, kind: 'app', token: 'ghs_x', scopes: null, orgs: [], gitName: 'x', gitEmail: 'x', expiresAt: new Date().toISOString(), renewal: { kind: 'app', appId: '9', privateKey: 'not a key', installationId: 9 } });
+	await assert.rejects(github.renewGithubToken(a.id), /can't sign with this app's private key/);
+	assert.match(store.getGithubAccount(a.id)!.renewError!, /can't sign/);
+});
