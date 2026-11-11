@@ -26,6 +26,7 @@ import {
 	getGithubAccount,
 	containerNamesInUse,
 	getSession,
+	getReplyStyle,
 	getSettings,
 	listSessions,
 	setSessionContainerName,
@@ -109,12 +110,14 @@ function githubEnv(accountId: string | null): string[] {
 }
 
 function writeLaunch(s: Session, agent: AgentSetup, launch: LaunchMode) {
+	const replyStyle = getReplyStyle();
 	const opts = {
 		name: s.name,
 		model: s.model,
 		permissionMode: s.permissionMode,
 		remoteControl: s.remoteControl && supportsRemoteControl(agent.account),
-		mcpConfig: agent.agent === 'claude' ? writeSessionMcp(s.id, s.accountId) : null
+		mcpConfig: agent.agent === 'claude' ? writeSessionMcp(s.id, s.accountId) : null,
+		appendSystemPrompt: agent.agent === 'claude' && replyStyle.enabled ? replyStyle.text : null
 	};
 	const args = agentArgs(agent.agent, opts, launch);
 	writeFileSync(join(metaDir(s.id), 'launch.json'), JSON.stringify({ agent: agent.agent, args, launch: launch.mode, at: new Date().toISOString() }, null, 2));

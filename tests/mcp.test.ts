@@ -12,6 +12,7 @@ const store = await import('#lib/server/store.ts');
 const { writeSessionMcp } = await import('#lib/server/sessions/mcp.ts');
 const { ensureDirs, metaDir } = await import('#lib/server/sessions/storage.ts');
 const { NOTION_PACKAGE } = await import('#lib/mcp.ts');
+const orbital = { type: 'stdio', command: 'node', args: ['/session/.orb/orb-mcp.mjs'] };
 
 const base = { command: null, args: [], url: null, notion: null, accountIds: [] as string[], enabled: true };
 
@@ -29,16 +30,17 @@ test('Library servers become the session\'s --mcp-config, secrets included, for 
 	const file = join(metaDir('s1'), 'mcp.json');
 	assert.equal(statSync(file).mode & 0o777, 0o600);
 	assert.deepEqual(JSON.parse(readFileSync(file, 'utf8')), {
-		mcpServers: { notion: { type: 'stdio', command: 'npx', args: ['-y', NOTION_PACKAGE], env: { NOTION_TOKEN: 'ntn_secret' } } }
+		mcpServers: { notion: { type: 'stdio', command: 'npx', args: ['-y', NOTION_PACKAGE], env: { NOTION_TOKEN: 'ntn_secret' } }, orbital }
 	});
+	assert.ok(existsSync(join(metaDir('s1'), 'orb-mcp.mjs')));
 
 	writeSessionMcp('s1', 'acct-b');
-	assert.deepEqual(Object.keys(JSON.parse(readFileSync(file, 'utf8')).mcpServers), ['notion', 'sentry']);
+	assert.deepEqual(Object.keys(JSON.parse(readFileSync(file, 'utf8')).mcpServers), ['notion', 'sentry', 'orbital']);
 
-	// Nothing for the account: no file, no flag.
+	// Nothing from the Library for the account: Orbital's own To do tool still.
 	store.updateMcpServer(notion.id, { ...base, name: 'notion', kind: 'notion', notion: null, accountIds: ['acct-b'] });
-	assert.equal(writeSessionMcp('s1', 'acct-a'), null);
-	assert.equal(existsSync(file), false);
+	writeSessionMcp('s1', 'acct-a');
+	assert.deepEqual(JSON.parse(readFileSync(file, 'utf8')), { mcpServers: { orbital } });
 	// Updating without secrets keeps them.
 	assert.deepEqual(store.getMcpSecrets(notion.id), { token: 'ntn_secret' });
 });

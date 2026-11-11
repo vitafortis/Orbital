@@ -73,6 +73,8 @@ export interface LaunchOptions {
 	remoteControl: boolean;
 	/** Claude only: the Library's MCP servers, a file in the container (see sessions/mcp.ts). */
 	mcpConfig?: string | null;
+	/** Claude only: the Library's reply style, added to its system prompt. */
+	appendSystemPrompt?: string | null;
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -81,6 +83,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export function claudeArgs(opts: LaunchOptions, launch: LaunchMode): string[] {
 	// --mcp-config takes several files: first, so the next option ends its list.
 	const args = [...(opts.mcpConfig ? ['--mcp-config', opts.mcpConfig] : []), '--name', opts.name];
+	if (opts.appendSystemPrompt) args.push('--append-system-prompt', opts.appendSystemPrompt);
 	if (opts.model) args.push('--model', opts.model);
 	if (opts.permissionMode !== 'default') args.push('--permission-mode', opts.permissionMode);
 	if (launch.mode === 'continue') args.push('--continue');

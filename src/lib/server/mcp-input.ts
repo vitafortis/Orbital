@@ -1,7 +1,7 @@
 import { BadRequest, str } from './http.ts';
 import { notionWhoAmI } from './notion.ts';
 import { getAccount, listMcpServers, type McpServerInput } from './store.ts';
-import { MCP_KEY, MCP_NAME } from '#lib/mcp.ts';
+import { MCP_KEY, MCP_NAME, ORBITAL_MCP } from '#lib/mcp.ts';
 import type { McpSecrets, McpServer } from '#lib/types.ts';
 
 function pairs(v: unknown, what: string): Record<string, string> | undefined {
@@ -23,6 +23,7 @@ function pairs(v: unknown, what: string): Record<string, string> | undefined {
 export async function parseMcpInput(b: Record<string, unknown>, existing?: McpServer): Promise<{ input: McpServerInput; secrets?: McpSecrets }> {
 	const name = str(b, 'name', { required: true, max: 40 })!;
 	if (!MCP_NAME.test(name)) throw new BadRequest('A name is letters, digits, "-" and "_"');
+	if (name.toLowerCase() === ORBITAL_MCP) throw new BadRequest(`"${ORBITAL_MCP}" is Orbital's own: pick another name`);
 	if (listMcpServers().some((s) => s.name === name && s.id !== existing?.id)) throw new BadRequest(`There's already a server called "${name}"`);
 	const kind = b.kind ?? existing?.kind;
 	if (kind !== 'notion' && kind !== 'stdio' && kind !== 'http') throw new BadRequest('Pick Notion, a command or a URL');
