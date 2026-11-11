@@ -15,6 +15,7 @@
 		GitBranch,
 		History,
 		Keyboard,
+		ListChecks,
 		ListTodo,
 		LoaderCircle,
 		MoreHorizontal,
@@ -49,6 +50,10 @@
 	import { attachFiles, deleteSession, relaunchAgent, sendToSession, startSession, stopSession, type Launch } from '#lib/client/sessions.ts';
 	import QuestionBar from '#lib/components/QuestionBar.svelte';
 	import ReadView from '#lib/components/ReadView.svelte';
+	import TodoList from '#lib/components/TodoList.svelte';
+	import { tellByDefault } from '#lib/client/todos.ts';
+	import { page } from '$app/state';
+	import { replaceState } from '$app/navigation';
 	import ModelPicker from '#lib/components/ModelPicker.svelte';
 	import PanelSection from '#lib/components/PanelSection.svelte';
 	import { CLAUDE_ALIASES, modelLabel } from '#lib/models.ts';
@@ -151,6 +156,29 @@
 
 	// The terminal's connection to the container, shown in the header.
 	let conn = $state<'connecting' | 'open' | 'closed'>('connecting');
+
+	// Run in Shell (from a to-do): the Shell tab, with the command typed in for you to check and run.
+	let toRun = $state<string | null>(null);
+	$effect(() => {
+		const cmd = page.url.searchParams.get('run');
+		if (!cmd) return;
+		toRun = cmd;
+		const url = new URL(page.url.href);
+		url.searchParams.delete('run');
+		untrack(() => replaceState(url, page.state));
+	});
+	$effect(() => {
+		if (!toRun || !running) return;
+		if (mode !== 'shell' || reading) return untrack(() => show('shell'));
+		if (conn !== 'open' || !term) return;
+		const cmd = toRun;
+		toRun = null;
+		// The shell prompt shows a moment after connecting.
+		setTimeout(() => {
+			term?.paste(cmd);
+			term?.focus();
+		}, 400);
+	});
 	const CONN = {
 		connecting: { label: 'Connecting…', dot: 'bg-warning', pulse: true },
 		open: { label: 'Connected', dot: 'bg-success', pulse: false },
@@ -420,7 +448,7 @@
 				<!-- The agent's screen only: the Shell tab is a separate terminal the probe doesn't read. -->
 				{#if mode === 'claude'}<LinkBar links={live?.links ?? []} />{/if}
 				{#if question}<QuestionBar {question} {agentName} onanswer={(n) => answer(String(n))} oncancel={() => answer('Escape')} />{/if}
-				{#if reading && isClaude}<ReadView session={s} updatedAt={sum?.updatedAt} running {agentName} />{/if}
+				{#if reading && isClaude}<ReadView session={s} updatedAt={sum?.updatedAt} todos={live?.todos ?? []} running {agentName} />{/if}
 				<div class="relative min-h-0 flex-1 {reading && isClaude ? 'hidden' : ''}">
 					{#key `${s.containerId}:${mode}`}
 						<Terminal bind:this={term} path="/ws/sessions/{s.id}/terminal?mode={mode}" turns={mode === 'claude'} highlight={mode === 'claude'} autofocus onstate={(v) => (conn = v)} onscreen={(lines) => (question = mode === 'claude' ? findQuestion(lines) : null)} onfiles={attach} />
@@ -448,7 +476,7 @@
 					</div>
 				{/if}
 			{:else if reading && isClaude}
-				<ReadView session={s} updatedAt={sum?.updatedAt} running={false} {agentName} />
+				<ReadView session={s} updatedAt={sum?.updatedAt} todos={live?.todos ?? []} running={false} {agentName} />
 			{:else}
 				<div class="relative flex min-h-0 flex-1 flex-col items-center justify-center overflow-y-auto p-6" style="background: var(--term-bg)">
 					{#if live?.tail?.length}
@@ -512,6 +540,13 @@
 						Summaries and the conversation list are for Claude Code sessions. {AGENT_LABEL[s.agent]} keeps its own history: Session → Continue newest conversation picks it up again.
 					</p>
 				</section>
+				{/if}
+
+				{#if live?.todos?.length}
+					<PanelSection id="todo" title="To do · {live.todos.length}" icon={ListChecks}>
+						{#snippet action()}<a class="btn btn-ghost btn-sm -mr-2" href="/todo">All</a>{/snippet}
+						<TodoList items={live.todos} running={() => running} tell={tellByDefault()} compact />
+					</PanelSection>
 				{/if}
 
 				{#if sum?.todos.length}

@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { invalidateAll } from '$app/navigation';
-	import { Globe, LoaderCircle, Pencil, Plug, Plus, SquareTerminal, Trash2 } from '@lucide/svelte';
+	import { Globe, LoaderCircle, MessageSquareText, Pencil, Plug, Plus, SquareTerminal, Trash2 } from '@lucide/svelte';
+	import { untrack } from 'svelte';
 	import BrandIcon from '#lib/components/BrandIcon.svelte';
 	import Dialog from '#lib/components/Dialog.svelte';
 	import EmptyState from '#lib/components/EmptyState.svelte';
@@ -99,6 +100,22 @@
 		}
 	}
 
+	// ── reply style ──
+	let style = $state(untrack(() => ({ ...data.replyStyle })));
+	let styleSaving = $state(false);
+	const styleChanged = $derived(style.enabled !== data.replyStyle.enabled || style.text.trim() !== data.replyStyle.text.trim());
+	async function saveStyle() {
+		styleSaving = true;
+		try {
+			style = await api.put('/api/library/reply-style', style);
+			toast('success', 'Saved the reply style', 'Sessions use it when Claude next starts.');
+			await invalidateAll();
+		} catch (err) {
+			toast('error', "Couldn't save it", errorMessage(err));
+		}
+		styleSaving = false;
+	}
+
 	function what(s: McpServer): string {
 		if (s.kind === 'notion') return s.notion?.bot ? `Integration “${s.notion.bot}”${s.notion.workspace ? ` in ${s.notion.workspace}` : ''}` : 'Notion integration';
 		if (s.kind === 'stdio') return [s.command, ...s.args].join(' ');
@@ -109,13 +126,35 @@
 <svelte:head><title>Library · Orbital</title></svelte:head>
 
 <div class="h-full overflow-y-auto">
-	<PageHeader title="Library" description="What every Claude session gets, set up once: tools to connect to, as MCP servers.">
+	<PageHeader title="Library" description="What every Claude session gets, set up once: how it writes, and tools to connect to.">
 		{#snippet actions()}
 			{#if admin && data.servers.length}<button class="btn btn-primary" onclick={() => openForm(null)}><Plus />Add a server</button>{/if}
 		{/snippet}
 	</PageHeader>
 
 	<div class="space-y-8 px-4 pb-10 sm:px-8">
+		<section>
+			<div class="mb-3 flex flex-wrap items-end justify-between gap-3">
+				<div>
+					<h2 class="flex items-center gap-2 text-[0.9375rem] font-semibold tracking-tight"><MessageSquareText class="size-4" />Reply style</h2>
+					<p class="max-w-2xl text-xs text-muted-foreground">
+						Added to Claude's instructions in every session, so long conversations stay easy to follow: the outcome first, then what needs you, then short details. Steps for you go on the To do list.
+					</p>
+				</div>
+				<Switch checked={style.enabled} label="Reply style on" disabled={!admin} onchange={(v) => (style.enabled = v)} />
+			</div>
+			<div class="card space-y-2 p-3 {style.enabled ? '' : 'opacity-60'}">
+				<textarea class="input min-h-40 text-[0.8125rem] leading-relaxed" aria-label="Reply style" bind:value={style.text} disabled={!admin || !style.enabled}></textarea>
+				{#if admin}
+					<div class="flex flex-wrap items-center justify-end gap-2">
+						{#if style.text.trim() !== data.defaultReplyStyle}<button class="btn btn-ghost btn-sm" onclick={() => (style.text = data.defaultReplyStyle)}>Back to Orbital's</button>{/if}
+						<button class="btn btn-primary btn-sm" disabled={!styleChanged || styleSaving} onclick={saveStyle}>{#if styleSaving}<LoaderCircle class="animate-spin" />{/if}Save</button>
+					</div>
+				{/if}
+			</div>
+			<p class="mt-2 text-xs text-muted-foreground">Applies when Claude next starts in a session. Codex and Gemini sessions don't get it.</p>
+		</section>
+
 		<section>
 			<div class="mb-3">
 				<h2 class="flex items-center gap-2 text-[0.9375rem] font-semibold tracking-tight"><Plug class="size-4" />MCP servers</h2>

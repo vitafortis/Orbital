@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { ArrowRight, ChevronDown, CircleAlert, GitBranch, ListTodo, LoaderCircle, Play, Send, Sparkles, CircleStop, Trash2, Wrench } from '@lucide/svelte';
+	import { ArrowRight, ChevronDown, ListChecks, CircleAlert, GitBranch, ListTodo, LoaderCircle, Play, Send, Sparkles, CircleStop, Trash2, Wrench } from '@lucide/svelte';
 	import { repoLabel } from '#lib/launch.ts';
 	import StateBadge from './StateBadge.svelte';
 	import BrandIcon from './BrandIcon.svelte';
@@ -113,6 +113,9 @@
 	{/if}
 
 	<footer class="flex flex-wrap items-center gap-x-3 gap-y-2 border-t border-border bg-surface/60 px-4 py-2.5 text-xs text-muted-foreground">
+		{#if live?.todos?.length}
+			<a href="/todo" class="badge badge-warning" title={live.todos.map((t) => t.title).join('\n')}><ListChecks />{live.todos.length} for you</a>
+		{/if}
 		{#if git && (git.changed || git.ahead)}
 			<span class="font-mono tabular-nums" title="{git.changed} changed files, {git.ahead} commits not pushed">
 				<span class="text-success">+{git.insertions}</span> <span class="text-danger">−{git.deletions}</span>{#if git.ahead} · ↑{git.ahead}{/if}

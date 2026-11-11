@@ -181,7 +181,7 @@ export function excerpt(text: string, maxChars = 60_000): string {
  * The conversation as turns, for reading: each prompt you sent, then the agent's words and the
  * tools it ran in between, in order. The newest `max` turns.
  */
-export function readTurns(text: string, max = 40): ReadTurn[] {
+export function readTurns(text: string, max = 100): ReadTurn[] {
 	const turns: ReadTurn[] = [];
 	let cur: ReadTurn | null = null;
 	const start = (prompt: string | null, at: string | null) => {

@@ -37,6 +37,13 @@ test('claudeArgs: the Library\'s MCP servers come first', () => {
 	);
 });
 
+test('claudeArgs: the reply style goes into the system prompt', () => {
+	assert.deepEqual(
+		claudeArgs({ name: 'api', model: null, permissionMode: 'default', remoteControl: false, appendSystemPrompt: 'Be brief.' }, { mode: 'continue' }),
+		['--name', 'api', '--append-system-prompt', 'Be brief.', '--continue']
+	);
+});
+
 test('claudeArgs: continue and resume, without Remote Control', () => {
 	const opts = { name: 'api', model: null, permissionMode: 'default' as const, remoteControl: false };
 	assert.deepEqual(claudeArgs(opts, { mode: 'continue' }), ['--name', 'api', '--continue']);

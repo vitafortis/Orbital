@@ -12,6 +12,7 @@ import { checkPr } from './prs.ts';
 import { reconcile, runningContainer } from './runtime.ts';
 import { metaDir } from './storage.ts';
 import { latestExcerpt, latestSummary } from './transcripts.ts';
+import { openTodos } from './todos.ts';
 import { renewAwsCredentials, sessionAws } from './aws.ts';
 import { sweepLogins } from '../accounts.ts';
 import type { GitState, Session, SessionLive } from '#lib/types.ts';
@@ -72,7 +73,7 @@ async function pollOnce() {
 				// Read while Claude was writing it: keep the last good one, or the panel jumps.
 				summary = lastSummary.get(s.id) ?? null;
 			}
-			return { id: s.id, status: s.status, ...p, summary, aiSummary: readAiSummary(s.id), aws: sessionAws(s.id), at: new Date().toISOString() };
+			return { id: s.id, status: s.status, ...p, summary, aiSummary: readAiSummary(s.id), aws: sessionAws(s.id), todos: openTodos(s.id), at: new Date().toISOString() };
 		})
 	);
 	live.clear();
