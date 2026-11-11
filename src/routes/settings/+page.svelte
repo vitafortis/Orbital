@@ -40,12 +40,24 @@
 	}
 	onMount(loadStatus);
 
+	// A GitHub App's client secret: sent only when typed, never shown again.
+	let clientSecret = $state('');
+	async function forgetClientSecret() {
+		try {
+			const r = await api.put<{ settings: Settings }>('/api/settings', { ...form, githubClientSecret: null });
+			form = { ...r.settings };
+		} catch (err) {
+			toast('error', "Couldn't remove it", errorMessage(err));
+		}
+	}
+
 	async function save(e: SubmitEvent) {
 		e.preventDefault();
 		saving = true;
 		try {
-			const r = await api.put<{ settings: Settings }>('/api/settings', form);
+			const r = await api.put<{ settings: Settings }>('/api/settings', { ...form, ...(clientSecret.trim() ? { githubClientSecret: clientSecret.trim() } : {}) });
 			form = { ...r.settings };
+			clientSecret = '';
 			toast('success', 'Settings saved', 'New and restarted sessions use them.');
 			void loadStatus();
 		} catch (err) {
@@ -179,10 +191,16 @@
 					<p class="mt-1.5 text-xs text-muted-foreground">Used for links in Linear comments and the SSO callback. Empty: the address you last opened Orbital at.</p>
 				</div>
 				<div class="sm:col-span-2">
-					<label class="label flex items-center gap-1.5" for="ghc"><BrandIcon brand="github" class="size-3.5" />GitHub OAuth app <span class="font-normal text-muted-foreground">· optional</span></label>
-					<input id="ghc" class="input font-mono text-xs" placeholder="Client ID, e.g. Ov23li…" bind:value={form.githubClientId} />
+					<label class="label flex items-center gap-1.5" for="ghc"><BrandIcon brand="github" class="size-3.5" />GitHub sign-in <span class="font-normal text-muted-foreground">· optional</span></label>
+					<div class="grid gap-2 sm:grid-cols-2">
+						<input id="ghc" class="input font-mono text-xs" placeholder="Client ID, e.g. Ov23li… or Iv23li…" bind:value={form.githubClientId} />
+						<div class="flex gap-2">
+							<input class="input font-mono text-xs" type="password" autocomplete="off" aria-label="Client secret" placeholder={form.githubClientSecretSet ? 'Client secret saved. Type to replace' : 'Client secret (GitHub Apps)'} bind:value={clientSecret} />
+							{#if form.githubClientSecretSet}<button type="button" class="btn btn-ghost btn-sm shrink-0" onclick={forgetClientSecret}>Remove</button>{/if}
+						</div>
+					</div>
 					<p class="mt-1.5 text-xs text-muted-foreground">
-						Adds <b class="font-medium text-foreground">Sign in with GitHub</b> under Accounts. Create an OAuth app (GitHub → Settings → Developer settings) with <i>Enable Device Flow</i> checked; no secret or callback URL needed. Without it, add personal access tokens.
+						Adds <b class="font-medium text-foreground">Sign in with GitHub</b> under Accounts: sessions act as the person who signs in. Use an OAuth app, or a <b class="font-medium text-foreground">GitHub App</b> where personal tokens aren't allowed, with <i>Enable Device Flow</i> checked; no callback URL needed. A GitHub App's sign-ins expire after 8 hours: give its client secret and Orbital renews them. To act as the app itself instead, add it under Accounts → GitHub.
 					</p>
 				</div>
 				<div class="sm:col-span-2">

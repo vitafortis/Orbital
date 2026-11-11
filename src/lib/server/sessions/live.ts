@@ -14,6 +14,7 @@ import { metaDir } from './storage.ts';
 import { latestExcerpt, latestSummary } from './transcripts.ts';
 import { renewAwsCredentials, sessionAws } from './aws.ts';
 import { sweepLogins } from '../accounts.ts';
+import { renewGithubTokens } from '../github.ts';
 import type { GitState, Session, SessionLive } from '#lib/types.ts';
 
 const FAST_MS = 2500;
@@ -57,6 +58,7 @@ async function pollOnce() {
 	await reconcile().catch((err) => console.error('[orbital] reconcile failed:', err instanceof Error ? err.message : err));
 	if (tick % 30 === 0) await sweepLogins().catch(() => {});
 	await renewAwsCredentials().catch(() => {});
+	await renewGithubTokens().catch(() => {});
 	const withGit = tick++ % GIT_EVERY === 0;
 	const sessions = listSessions();
 	const results = await Promise.all(

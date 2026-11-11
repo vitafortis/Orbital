@@ -1,12 +1,28 @@
 /**
- * GitHub accounts: a personal access token (classic or fine-grained), or "Sign in with
- * GitHub" through the device flow when ORB_GITHUB_CLIENT_ID names an OAuth app.
+ * GitHub accounts: a personal access token (classic or fine-grained); "Sign in with GitHub"
+ * through the device flow when ORB_GITHUB_CLIENT_ID names an OAuth app or a GitHub App (whose
+ * sign-ins can expire, and are renewed); or a GitHub App's installation, acting as its bot.
  * Tokens list repositories and are handed to session containers for clone and push.
  */
+import { createSign } from 'node:crypto';
 import { randomToken } from './crypto.ts';
 import { config } from './config.ts';
 import { BadRequest } from './http.ts';
-import { getGithubAccount, getGithubToken, getSettings, listGithubAccounts, setGithubOrgs, setGithubResourceOwner, upsertGithubAccount, type GithubAccountInput } from './store.ts';
+import {
+	getGithubAccount,
+	getGithubClientSecret,
+	getGithubRenewal,
+	getGithubToken,
+	getSettings,
+	listGithubAccounts,
+	setGithubOrgs,
+	setGithubRenewError,
+	setGithubResourceOwner,
+	setGithubToken,
+	upsertGithubAccount,
+	type GithubAccountInput,
+	type GithubRenewal
+} from './store.ts';
 import type { GithubAccount, GithubPull, GithubRepo, SessionPr, TokenAccess } from '#lib/types.ts';
 import { refreshGithubCredentials } from './sessions/github.ts';
 
@@ -69,7 +85,11 @@ async function orgsOf(token: string): Promise<string[]> {
 }
 
 /** Checks a token and saves (or refreshes) the account it belongs to. */
-export async function addGithubToken(token: string, kind: GithubAccount['kind'], opts: { label?: string | null; replace?: string } = {}): Promise<GithubAccount> {
+export async function addGithubToken(
+	token: string,
+	kind: GithubAccount['kind'],
+	opts: { label?: string | null; replace?: string; expiresAt?: string | null; renewal?: GithubRenewal | null } = {}
+): Promise<GithubAccount> {
 	const t = token.trim();
 	if (!t) throw new BadRequest('Paste a token');
 	const { data: user, headers } = await gh<GhUser>(t, '/user');
@@ -83,7 +103,9 @@ export async function addGithubToken(token: string, kind: GithubAccount['kind'],
 		orgs: await orgsOf(t),
 		// Commits from sessions use the account's GitHub noreply address.
 		gitName: user.name || user.login,
-		gitEmail: `${user.id}+${user.login}@users.noreply.github.com`
+		gitEmail: `${user.id}+${user.login}@users.noreply.github.com`,
+		expiresAt: opts.expiresAt ?? null,
+		renewal: opts.renewal ?? null
 	};
 	const account = upsertGithubAccount(input, opts);
 	repoCache.delete(account.id);
@@ -95,7 +117,8 @@ export async function addGithubToken(token: string, kind: GithubAccount['kind'],
 
 export async function refreshOrgs(account: GithubAccount): Promise<string[]> {
 	const token = getGithubToken(account.id);
-	if (!token) return [];
+	// An installation has the one account it's installed on.
+	if (!token || account.kind === 'app') return account.orgs;
 	const orgs = await orgsOf(token);
 	setGithubOrgs(account.id, orgs);
 	// And the organizations whose repos it can open, which the list above can miss.
@@ -190,6 +213,18 @@ export async function listRepos(account: GithubAccount, refresh = false): Promis
 	if (!token) return { repos: [], notice: null };
 	const byName = new Map<string, GithubRepo>();
 	let notice: string | null = null;
+	if (account.kind === 'app') {
+		// An installation has no user: its repos are the ones it was given.
+		for (let page = 1; page <= 10; page++) {
+			const { data } = await gh<{ repositories: GhRepo[] }>(token, `/installation/repositories?per_page=100&page=${page}`);
+			for (const r of data.repositories) byName.set(r.full_name, toRepo(r));
+			if (data.repositories.length < 100) break;
+		}
+		const repos = [...byName.values()].sort((a, b) => (b.pushedAt ?? '').localeCompare(a.pushedAt ?? ''));
+		const list = { repos, notice };
+		repoCache.set(account.id, { at: Date.now(), list });
+		return list;
+	}
 	for (let page = 1; page <= 10; page++) {
 		const { data, headers } = await gh<GhRepo[]>(token, `/user/repos?per_page=100&page=${page}&sort=pushed&affiliation=owner,collaborator,organization_member`);
 		if (headers.get('x-github-sso')?.startsWith('partial-results')) notice = SSO_NOTICE;
@@ -266,7 +301,7 @@ async function missReason(account: GithubAccount, fullName: string, res: Respons
 // ── across every token ─────────────────────────────────────────────────
 
 const tokenKind = (token: string): TokenAccess['kind'] =>
-	token.startsWith('github_pat_') ? 'fine-grained' : token.startsWith('ghp_') ? 'classic' : token.startsWith('gho_') ? 'sign-in' : 'unknown';
+	token.startsWith('github_pat_') ? 'fine-grained' : token.startsWith('ghp_') ? 'classic' : /^gh[ou]_/.test(token) ? 'sign-in' : token.startsWith('ghs_') ? 'app' : 'unknown';
 
 const LEVELS = ['read', 'triage', 'write', 'maintain', 'admin'] as const;
 const FROM_GITHUB = { pull: 'read', triage: 'triage', push: 'write', maintain: 'maintain', admin: 'admin' } as const;
@@ -281,7 +316,7 @@ export function rankTokens(tokens: TokenAccess[]): TokenAccess[] {
 	const level = (t: TokenAccess) => LEVELS.indexOf(t.access ?? 'read');
 	const writes = (t: TokenAccess) => t.ok && level(t) >= LEVELS.indexOf('write');
 	const anyWrites = tokens.some(writes);
-	const kind = { 'fine-grained': 0, 'sign-in': 1, classic: 2, unknown: 3 };
+	const kind = { 'fine-grained': 0, app: 0, 'sign-in': 1, classic: 2, unknown: 3 };
 	return [...tokens].sort(
 		(a, b) =>
 			Number(b.ok) - Number(a.ok) ||
@@ -430,7 +465,7 @@ async function postForm<T>(url: string, form: Record<string, string>): Promise<T
 }
 
 export async function startDeviceFlow() {
-	if (!clientId()) throw new BadRequest('Add a GitHub OAuth app under Settings to sign in with GitHub, or add a personal access token.');
+	if (!clientId()) throw new BadRequest('Add a GitHub OAuth app or GitHub App under Settings to sign in with GitHub, or add a token or a GitHub App under Accounts.');
 	const r = await postForm<{ device_code: string; user_code: string; verification_uri: string; expires_in: number; interval: number; error_description?: string }>(
 		'https://github.com/login/device/code',
 		{ client_id: clientId()!, scope: 'repo read:org workflow' }
@@ -448,19 +483,152 @@ export async function pollDeviceFlow(handle: string): Promise<{ state: 'pending'
 		pending.delete(handle);
 		return { state: 'expired' };
 	}
-	const r = await postForm<{ access_token?: string; error?: string; interval?: number }>('https://github.com/login/oauth/access_token', {
+	const r = await postForm<TokenAnswer & { interval?: number }>('https://github.com/login/oauth/access_token', {
 		client_id: clientId()!,
 		device_code: p.deviceCode,
 		grant_type: 'urn:ietf:params:oauth:grant-type:device_code'
 	});
 	if (r.access_token) {
 		pending.delete(handle);
-		return { state: 'done', account: await addGithubToken(r.access_token, 'oauth') };
+		// A GitHub App's sign-ins expire (8 hours by default) and come with a refresh token.
+		return { state: 'done', account: await addGithubToken(r.access_token, 'oauth', renewalOf(r)) };
 	}
 	if (r.error === 'slow_down') p.interval = r.interval ?? p.interval + 5;
 	if (r.error === 'authorization_pending' || r.error === 'slow_down') return { state: 'pending', interval: p.interval };
 	pending.delete(handle);
 	return { state: r.error === 'access_denied' ? 'denied' : 'expired' };
+}
+
+type TokenAnswer = { access_token?: string; refresh_token?: string; expires_in?: number; refresh_token_expires_in?: number; error?: string; error_description?: string };
+
+const inSeconds = (n: number | undefined) => (n ? new Date(Date.now() + n * 1000).toISOString() : null);
+
+/** A token answer's expiry and refresh token, if it has them (a GitHub App's expiring sign-in). */
+function renewalOf(r: TokenAnswer): { expiresAt: string | null; renewal: GithubRenewal | null } {
+	return {
+		expiresAt: inSeconds(r.expires_in),
+		renewal: r.refresh_token ? { kind: 'refresh', refreshToken: r.refresh_token, refreshExpiresAt: inSeconds(r.refresh_token_expires_in) } : null
+	};
+}
+
+// ── GitHub Apps ────────────────────────────────────────────────────────
+
+const b64url = (b: Buffer | string) => Buffer.from(b).toString('base64url');
+
+/** The app's own short-lived token (a JWT signed with its private key), to ask for installation tokens. */
+export function appJwt(appId: string, privateKey: string, now = Date.now()): string {
+	const iat = Math.floor(now / 1000) - 60; // GitHub's clock may be behind ours
+	const head = b64url(JSON.stringify({ alg: 'RS256', typ: 'JWT' }));
+	const body = b64url(JSON.stringify({ iat, exp: iat + 9 * 60, iss: appId }));
+	const sig = createSign('RSA-SHA256').update(`${head}.${body}`).sign(privateKey);
+	return `${head}.${body}.${b64url(sig)}`;
+}
+
+async function appCall<T>(jwt: string, path: string, method = 'GET'): Promise<T> {
+	const res = await ghFetch(jwt, path, { method, ...(method === 'POST' ? { body: {} } : {}) });
+	const b = (await res.json().catch(() => ({}))) as T & { message?: string };
+	if (!res.ok) throw new BadRequest(res.status === 401 ? 'GitHub turned the app down: check the App ID and that the private key is the current one.' : `GitHub: ${b.message ?? res.statusText}`);
+	return b;
+}
+
+async function installationToken(appId: string, privateKey: string, installationId: number): Promise<{ token: string; expiresAt: string }> {
+	const r = await appCall<{ token: string; expires_at: string }>(appJwt(appId, privateKey), `/app/installations/${installationId}/access_tokens`, 'POST');
+	return { token: r.token, expiresAt: r.expires_at };
+}
+
+type GhInstallation = { id: number; account: { login: string; type: string; avatar_url: string } | null };
+
+/**
+ * Connects a GitHub App: one connection per installation, acting as the app's bot on the
+ * account it's installed on, with an hour-long token Orbital keeps renewing.
+ */
+export async function addGithubApp(appId: string, privateKey: string, label: string | null): Promise<GithubAccount[]> {
+	if (!/^\d{1,12}$/.test(appId)) throw new BadRequest('The App ID is a number, on the app\'s settings page');
+	const key = privateKey.trim();
+	if (!/^-----BEGIN (RSA )?PRIVATE KEY-----[\s\S]+-----END (RSA )?PRIVATE KEY-----$/.test(key)) throw new BadRequest('Paste the whole private key (.pem), from -----BEGIN to -----END');
+	let jwt: string;
+	try {
+		jwt = appJwt(appId, key);
+	} catch {
+		throw new BadRequest("That private key can't sign: paste the .pem GitHub generated for the app");
+	}
+	const app = await appCall<{ slug: string; name: string }>(jwt, '/app');
+	const installations = await appCall<GhInstallation[]>(jwt, '/app/installations?per_page=100');
+	if (!installations.length) throw new BadRequest(`${app.name} isn't installed anywhere yet. Install it on the organization (the app's page → Install App), then add it again.`);
+	// Commits from sessions use the bot's noreply address.
+	const bot = `${app.slug}[bot]`;
+	const botUser = (await ghFetch(undefined, `/users/${encodeURIComponent(bot)}`).then((r) => (r.ok ? (r.json() as Promise<{ id: number }>) : null)))?.id;
+	const out: GithubAccount[] = [];
+	for (const inst of installations) {
+		const owner = inst.account?.login ?? null;
+		const t = await installationToken(appId, key, inst.id);
+		const account = upsertGithubAccount(
+			{
+				login: bot,
+				name: app.name,
+				avatarUrl: inst.account?.avatar_url ?? null,
+				kind: 'app',
+				token: t.token,
+				scopes: null,
+				orgs: owner && inst.account?.type === 'Organization' ? [owner] : [],
+				gitName: bot,
+				gitEmail: botUser ? `${botUser}+${bot}@users.noreply.github.com` : `${bot}@users.noreply.github.com`,
+				expiresAt: t.expiresAt,
+				renewal: { kind: 'app', appId, privateKey: key, installationId: inst.id }
+			},
+			{ label: label ?? (installations.length > 1 && owner ? `${app.name} · ${owner}` : app.name) }
+		);
+		setGithubResourceOwner(account.id, owner);
+		repoCache.delete(account.id);
+		refreshGithubCredentials(account.id);
+		out.push(getGithubAccount(account.id)!);
+	}
+	return out;
+}
+
+// ── renewal ────────────────────────────────────────────────────────────
+
+// Renew this long before a token runs out; installation tokens last an hour, sign-ins eight.
+const RENEW_BEFORE = 10 * 60_000;
+const lastTry = new Map<string, number>();
+
+/** A new token for a connection that renews, saved and handed to its running sessions. */
+export async function renewGithubToken(id: string): Promise<void> {
+	const r = getGithubRenewal(id);
+	if (!r) return;
+	try {
+		if (r.kind === 'app') {
+			const t = await installationToken(r.appId, r.privateKey, r.installationId);
+			setGithubToken(id, t.token, t.expiresAt);
+		} else {
+			const secret = getGithubClientSecret();
+			if (!secret) throw new Error("Add the GitHub App's client secret under Settings: GitHub asks for it to renew a sign-in.");
+			if (r.refreshExpiresAt && Date.parse(r.refreshExpiresAt) < Date.now()) throw new Error('The sign-in ran out. Sign in with GitHub again.');
+			const a = await postForm<TokenAnswer>('https://github.com/login/oauth/access_token', {
+				client_id: clientId() ?? '',
+				client_secret: secret,
+				grant_type: 'refresh_token',
+				refresh_token: r.refreshToken
+			});
+			if (!a.access_token) throw new Error(a.error === 'bad_refresh_token' ? 'GitHub no longer accepts this sign-in. Sign in with GitHub again.' : `GitHub: ${a.error_description ?? a.error ?? 'no token'}`);
+			const next = renewalOf(a);
+			setGithubToken(id, a.access_token, next.expiresAt, next.renewal ?? r);
+		}
+		refreshGithubCredentials(id);
+	} catch (err) {
+		setGithubRenewError(id, err instanceof Error ? err.message : String(err));
+		throw err;
+	}
+}
+
+/** Renews every token about to run out (from the live poll); a failure is retried every few minutes. */
+export async function renewGithubTokens(now = Date.now()) {
+	for (const a of listGithubAccounts()) {
+		if (!a.renews || !a.expiresAt || Date.parse(a.expiresAt) - now > RENEW_BEFORE) continue;
+		if (now - (lastTry.get(a.id) ?? 0) < (a.renewError ? 5 * 60_000 : 30_000)) continue;
+		lastTry.set(a.id, now);
+		await renewGithubToken(a.id).catch((err) => console.error(`[orbital] renewing GitHub token ${a.label ?? a.login}:`, err instanceof Error ? err.message : err));
+	}
 }
 
 export type TokenCheck = { label: string; path: string; status: number; answer: string; headers: Record<string, string> };

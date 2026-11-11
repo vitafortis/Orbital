@@ -82,8 +82,14 @@ export interface GithubAccount {
 	login: string;
 	name: string | null;
 	avatarUrl: string | null;
-	kind: 'pat' | 'oauth';
+	/** A personal access token, a sign-in (an OAuth or GitHub App's device flow), or a GitHub App installation. */
+	kind: 'pat' | 'oauth' | 'app';
 	scopes: string | null;
+	/** When the token runs out; Orbital renews it before then when it can (`renews`). */
+	expiresAt: string | null;
+	renews: boolean;
+	/** Why the last renewal failed, until one works. */
+	renewError: string | null;
 	/** Organizations the token can see. */
 	orgs: string[];
 	/**
@@ -135,7 +141,7 @@ export interface TokenAccess {
 	ok: boolean;
 	/** The highest level in the `permissions` GitHub returned for the repository with this token. */
 	access: 'admin' | 'maintain' | 'write' | 'triage' | 'read' | null;
-	kind: 'fine-grained' | 'classic' | 'sign-in' | 'unknown';
+	kind: 'fine-grained' | 'classic' | 'sign-in' | 'app' | 'unknown';
 	/** A classic token's or sign-in's scopes, as GitHub reports them. */
 	scopes: string | null;
 	/** When the token expires, as GitHub reports it. */
@@ -408,6 +414,8 @@ export interface Settings {
 	publicUrl: string;
 	/** A GitHub OAuth app (device flow enabled) for "Sign in with GitHub". */
 	githubClientId: string;
+	/** The app's client secret is stored (encrypted, never sent back): needed to renew expiring sign-ins. */
+	githubClientSecretSet?: boolean;
 }
 
 export interface Viewer {
