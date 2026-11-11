@@ -67,6 +67,13 @@ test('a GitHub App becomes one connection per installation, acting as its bot, a
 	assert.equal(store.getGithubToken(a.id), 'ghs_2');
 	await github.renewGithubTokens();
 	assert.equal(store.getGithubToken(a.id), 'ghs_2', 'an hour left: nothing to do');
+	// Starting a session with an hour left doesn't renew either.
+	await github.freshGithubToken(a.id);
+	assert.equal(store.getGithubToken(a.id), 'ghs_2');
+	// One that ran out (Orbital was down, say) is renewed before a session starts.
+	store.setGithubToken(a.id, 'ghs_2', new Date(Date.now() - 60_000).toISOString());
+	await github.freshGithubToken(a.id);
+	assert.equal(store.getGithubToken(a.id), 'ghs_3');
 	const again = await github.addGithubApp('123', pem, null);
 	assert.equal(again[0].id, a.id);
 	assert.equal(store.listGithubAccounts().length, 1);

@@ -621,6 +621,17 @@ export async function renewGithubToken(id: string): Promise<void> {
 	}
 }
 
+/**
+ * Before a session starts: a token that has run out (or is about to) is renewed first, so the
+ * clone doesn't fail on it. A failed renewal is left to the connection's error.
+ */
+export async function freshGithubToken(id: string, now = Date.now()) {
+	const a = getGithubAccount(id);
+	if (!a?.renews || !a.expiresAt || Date.parse(a.expiresAt) - now > RENEW_BEFORE) return;
+	lastTry.set(id, now);
+	await renewGithubToken(id).catch(() => {});
+}
+
 /** Renews every token about to run out (from the live poll); a failure is retried every few minutes. */
 export async function renewGithubTokens(now = Date.now()) {
 	for (const a of listGithubAccounts()) {

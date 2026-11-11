@@ -37,6 +37,7 @@ import { agentSetup, supportsRemoteControl, type AgentSetup } from '../providers
 import { accountRel, backing, conversationsDir, ensureDirs, metaDir, mountSpec, sessionRel } from './storage.ts';
 import { AWS_ENV, writeAwsCredentials } from './aws.ts';
 import { GIT_ENV, writeGithubCredentials } from './github.ts';
+import { freshGithubToken } from '../github.ts';
 import { writeSessionMcp } from './mcp.ts';
 import { hasConversations } from './transcripts.ts';
 import type { Session, Settings } from '#lib/types.ts';
@@ -187,6 +188,7 @@ export async function startSession(id: string, launch?: LaunchMode): Promise<Ses
 		const settings = getSettings();
 		const b = await backing();
 		ensureDirs(accountRel(s.accountId), `${sessionRel(id)}/home`, `${sessionRel(id)}/repo`, `${sessionRel(id)}/.orb`);
+		if (s.githubAccountId) await freshGithubToken(s.githubAccountId);
 		writeGithubCredentials(s);
 		await writeAwsCredentials(s);
 		const agent = agentSetup(s.accountId); // fails early if the account is gone
@@ -249,6 +251,7 @@ export async function relaunchAgent(id: string, launch?: LaunchMode): Promise<Se
 		throw new Conflict('The session changed accounts since it started. Stop and start it to switch.');
 	}
 	writeLaunch(session, agent, launch ?? defaultLaunch(session));
+	if (session.githubAccountId) await freshGithubToken(session.githubAccountId);
 	writeGithubCredentials(session);
 	await writeAwsCredentials(session);
 	const r = await exec(container, ['tmux', 'respawn-pane', '-k', '-t', 'main', 'orb-launch'], { user: 'node' });
