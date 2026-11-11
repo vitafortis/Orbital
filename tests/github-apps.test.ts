@@ -141,3 +141,9 @@ test("for an app that can't open a repo, Orbital says what the installation has 
 	await assert.rejects(github.lookupRepo(a, 'acme/api'), /installed on ironclad, not acme/);
 	gh.restore();
 });
+
+test("when GitHub turns the app down, its own reason is in the message", async () => {
+	const gh = fakeGithub(() => Response.json({ message: "'Issued at' claim ('iat') must be an Integer representing a time in the past." }, { status: 401 }));
+	await assert.rejects(github.addGithubApp('123', pem, null), /turned the app down\. GitHub says: “'Issued at' claim.*clock is right/);
+	gh.restore();
+});

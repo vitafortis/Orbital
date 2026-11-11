@@ -533,7 +533,15 @@ export function appJwt(appId: string, privateKey: string, now = Date.now()): str
 async function appCall<T>(jwt: string, path: string, method = 'GET'): Promise<T> {
 	const res = await ghFetch(jwt, path, { method, ...(method === 'POST' ? { body: {} } : {}) });
 	const b = (await res.json().catch(() => ({}))) as T & { message?: string };
-	if (!res.ok) throw new BadRequest(res.status === 401 ? 'GitHub turned the app down: check the App ID and that the private key is the current one.' : `GitHub: ${b.message ?? res.statusText}`);
+	if (!res.ok) {
+		// GitHub's own reason says which: an unknown app, a key that isn't the app's, or a clock that's off.
+		const why = b.message ? ` GitHub says: “${b.message}”.` : '';
+		throw new BadRequest(
+			res.status === 401
+				? `GitHub turned the app down.${why} Check that the App ID is the number on the app's settings page (not its Client ID), that the private key is one of the app's current keys, and that this server's clock is right.`
+				: `GitHub: ${b.message ?? res.statusText}`
+		);
+	}
 	return b;
 }
 
