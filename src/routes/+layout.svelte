@@ -6,6 +6,7 @@
 	import { onMount } from 'svelte';
 	import {
 		LayoutDashboard,
+		ListChecks,
 		Library,
 		Plus,
 		Moon,
@@ -71,11 +72,15 @@
 
 	const nav = [
 		{ href: '/', label: 'Sessions', icon: LayoutDashboard },
+		{ href: '/todo', label: 'To do', icon: ListChecks },
 		{ href: '/automations', label: 'Automations', icon: Workflow },
 		{ href: '/library', label: 'Library', icon: Library },
 		{ href: '/accounts', label: 'Accounts', icon: KeyRound },
 		{ href: '/settings', label: 'Settings', icon: Settings }
 	];
+
+	// What sessions are waiting on a person for, across all of them.
+	const openTodos = $derived(Object.values(shown.live).reduce((n, l) => n + (l.todos?.length ?? 0), 0));
 
 	// Pinned sessions stay on top of the sidebar, in this browser.
 	let pinned = $state<string[]>([]);
@@ -164,6 +169,9 @@
 				{#if active}<span class="absolute top-1.5 bottom-1.5 left-0 w-0.5 rounded-full bg-primary"></span>{/if}
 				<item.icon class="size-4 shrink-0" />
 				{#if !compact}{item.label}{/if}
+				{#if item.href === '/todo' && openTodos}
+					<span class="{compact ? 'absolute top-0.5 right-0.5 size-4 text-[0.5625rem]' : 'ml-auto h-4.5 min-w-4.5 px-1 text-[0.625rem]'} grid place-items-center rounded-full bg-warning font-semibold text-black tabular-nums" title="{openTodos} for you to do">{openTodos}</span>
+				{/if}
 			</a>
 		{/each}
 	</nav>

@@ -270,12 +270,11 @@ export interface ReadTurn {
 	parts: ReadPart[];
 }
 
-/** A conversation for the Read tab, with the list items you ticked off. */
+/** A conversation for the Read tab. */
 export interface ReadConversation {
 	conversationId: string;
 	updatedAt: string;
 	turns: ReadTurn[];
-	ticked: string[];
 }
 
 export interface Conversation {
