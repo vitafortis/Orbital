@@ -16,6 +16,7 @@
 	import { parseRepo, slugify } from '#lib/launch.ts';
 	import { ago, githubKind, githubLabel } from '#lib/client/format.ts';
 	import { matchProfile } from '#lib/profiles.ts';
+	import { GITHUB_ACCESS_LABEL, githubAccess } from '#lib/github-access.ts';
 	import { ACCOUNT_KINDS, AGENT_LABEL, AGENT_PERMISSION_MODES, fitPermissionMode } from '#lib/providers.ts';
 	import { PERMISSION_MODES, type GithubAccount, type GithubPull, type GithubRepo, type PermissionMode, type Session, type SkillOption, type TokenAccess } from '#lib/types.ts';
 	import type { PageProps } from './$types';
@@ -174,6 +175,7 @@
 	function facts(t: TokenAccess): string[] {
 		return [
 			ghAccount(t.accountId) ? githubKind(ghAccount(t.accountId)!).label : KIND_LABEL[t.kind],
+			ghAccount(t.accountId) && githubAccess(ghAccount(t.accountId)!) ? GITHUB_ACCESS_LABEL[githubAccess(ghAccount(t.accountId)!)!].toLowerCase() : '',
 			t.access ? `GitHub reports ${t.access} access` : '',
 			t.kind !== 'fine-grained' && t.scopes ? `scopes: ${t.scopes}` : '',
 			t.sees ? `lists ${t.sees.repos} repo${t.sees.repos === 1 ? '' : 's'} (${t.sees.private} private)` : '',
@@ -511,6 +513,11 @@
 									{#if usable.length > 1 || access.tokens.length > 1}<span class="inline-flex items-center text-primary">{showTokens ? 'Hide' : usable.length > 1 ? 'Change' : 'Details'}<ChevronDown class="size-3.5 transition-transform {showTokens ? 'rotate-180' : ''}" /></span>{/if}
 								</button>
 								{#if !showTokens && using}<p class="mt-0.5 pl-5 text-[0.6875rem] text-muted-foreground/80">{facts(using).join(' · ')}</p>{/if}
+								{#if github && githubAccess(github) === 'read'}
+									<p class="mt-1 pl-5 text-xs text-warning">This connection can only read: the session can clone and review pull requests, but not push, open PRs or comment. {agentName} is told so.</p>
+								{:else if github && githubAccess(github) === 'review'}
+									<p class="mt-1 pl-5 text-xs text-warning">This connection can review and comment on pull requests, but not push. {agentName} is told so.</p>
+								{/if}
 								{#if showTokens}
 									<ul class="mt-2 space-y-1.5">
 										{#each access.tokens as t (t.accountId)}

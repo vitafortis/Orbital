@@ -90,6 +90,8 @@ export interface GithubAccount {
 	renews: boolean;
 	/** Why the last renewal failed, until one works. */
 	renewError: string | null;
+	/** A GitHub App installation's permissions, as GitHub granted them with its last token. */
+	permissions: Record<string, string> | null;
 	/** Organizations the token can see. */
 	orgs: string[];
 	/**

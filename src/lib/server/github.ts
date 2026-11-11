@@ -16,6 +16,7 @@ import {
 	getSettings,
 	listGithubAccounts,
 	setGithubOrgs,
+	setGithubPermissions,
 	setGithubRenewError,
 	setGithubResourceOwner,
 	setGithubToken,
@@ -545,9 +546,16 @@ async function appCall<T>(jwt: string, path: string, method = 'GET'): Promise<T>
 	return b;
 }
 
-async function installationToken(appId: string, privateKey: string, installationId: number): Promise<{ token: string; expiresAt: string }> {
-	const r = await appCall<{ token: string; expires_at: string }>(appJwt(appId, privateKey), `/app/installations/${installationId}/access_tokens`, 'POST');
-	return { token: r.token, expiresAt: r.expires_at };
+/** An hour-long token for the installation, with the permissions GitHub granted it (as accepted by the account's owners). */
+async function installationToken(appId: string, privateKey: string, installationId: number): Promise<{ token: string; expiresAt: string; permissions: Record<string, string> | null }> {
+	let jwt: string;
+	try {
+		jwt = appJwt(appId, privateKey);
+	} catch {
+		throw new BadRequest("Orbital can't sign with this app's private key. Add the app again with one of its current keys.");
+	}
+	const r = await appCall<{ token: string; expires_at: string; permissions?: Record<string, string> }>(jwt, `/app/installations/${installationId}/access_tokens`, 'POST');
+	return { token: r.token, expiresAt: r.expires_at, permissions: r.permissions ?? null };
 }
 
 type GhInstallation = { id: number; account: { login: string; type: string; avatar_url: string } | null };
@@ -593,6 +601,7 @@ export async function addGithubApp(appId: string, privateKey: string, label: str
 			{ label: label ?? (installations.length > 1 && owner ? `${app.name} · ${owner}` : app.name) }
 		);
 		setGithubResourceOwner(account.id, owner);
+		setGithubPermissions(account.id, t.permissions);
 		repoCache.delete(account.id);
 		refreshGithubCredentials(account.id);
 		out.push(getGithubAccount(account.id)!);
@@ -614,6 +623,7 @@ export async function renewGithubToken(id: string): Promise<void> {
 		if (r.kind === 'app') {
 			const t = await installationToken(r.appId, r.privateKey, r.installationId);
 			setGithubToken(id, t.token, t.expiresAt);
+			setGithubPermissions(id, t.permissions);
 		} else {
 			const secret = getGithubClientSecret();
 			if (!secret) throw new Error("Add the GitHub App's client secret under Settings: GitHub asks for it to renew a sign-in.");

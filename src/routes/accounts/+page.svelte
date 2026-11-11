@@ -39,6 +39,7 @@
 	import { api, errorMessage } from '#lib/client/api.ts';
 	import { copyText } from '#lib/client/clipboard.ts';
 	import { ago, githubKind, githubLabel } from '#lib/client/format.ts';
+	import { GITHUB_ACCESS_LABEL, githubAccess } from '#lib/github-access.ts';
 	import { confirmAction, toast, useSessions } from '#lib/client/state.svelte.ts';
 	import AgentBadge from '#lib/components/AgentBadge.svelte';
 	import BrandIcon from '#lib/components/BrandIcon.svelte';
@@ -643,12 +644,14 @@
 			<div class="card divide-y divide-border">
 				{#each data.githubAccounts as a (a.id)}
 					{@const k = githubKind(a)}
+					{@const acc = githubAccess(a)}
 					<div class="flex flex-wrap items-center gap-3 px-4 py-3">
 						{#if a.avatarUrl}<img src={a.avatarUrl} alt="" class="size-9 shrink-0 rounded-full border border-border" />{/if}
 						<div class="min-w-0 flex-1 basis-52">
 							<p class="flex flex-wrap items-center gap-2 text-[0.8125rem] font-medium">
 								{a.label ?? a.login}<span class="font-normal text-muted-foreground">{a.label ? a.login : a.name}</span>
 								<span class="badge {k.org ? 'badge-primary' : ''}" title={k.org ? `Made for ${k.org}: it reaches only that organization's repos` : a.kind === 'oauth' || a.scopes !== null ? "Reaches whatever its user can" : k.label === 'Personal token' ? `Reaches only ${a.login}'s own repos` : 'Fine-grained: whose it is shows once it lists a repo'}>{#if k.org}<Building2 />{/if}{k.label}</span>
+								{#if acc}<span class="badge {acc === 'write' ? '' : 'badge-warning'}" title={a.permissions ? Object.entries(a.permissions).map(([p, v]) => `${p.replace(/_/g, ' ')}: ${v}`).join('\n') : ''}>{GITHUB_ACCESS_LABEL[acc]}</span>{/if}
 							</p>
 							<p class="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
 								{#each a.orgs as o (o)}<span class="badge"><Building2 />{o}</span>{:else}<span>No organizations visible</span>{/each}
