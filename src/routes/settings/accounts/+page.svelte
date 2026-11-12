@@ -33,7 +33,7 @@
 	import EmptyState from '#lib/components/EmptyState.svelte';
 	import ModelPicker from '#lib/components/ModelPicker.svelte';
 	import { modelLabel } from '#lib/models.ts';
-	import PageHeader from '#lib/components/PageHeader.svelte';
+	import SettingsTabs from '#lib/components/SettingsTabs.svelte';
 	import LinkBar from '#lib/components/LinkBar.svelte';
 	import Terminal from '#lib/components/Terminal.svelte';
 	import { api, errorMessage } from '#lib/client/api.ts';
@@ -531,7 +531,7 @@
 {/snippet}
 
 <div class="h-full overflow-y-auto">
-	<PageHeader title="Accounts" description="The models sessions run on, which repos use which, and how sessions reach GitHub." />
+	<SettingsTabs admin={data.viewer?.admin ?? false} description="The models sessions run on, which repos use which, and how sessions reach GitHub and AWS." />
 
 	<div class="max-w-4xl space-y-8 px-4 pb-12 sm:px-8">
 		{#if !shown.list.length}

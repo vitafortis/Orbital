@@ -56,7 +56,7 @@
 					title: 'Model account connected',
 					hint: working.status === 'signed_in' ? `${working.name} is ready.` : `${working.name} is added; the first session checks it.`,
 					action: '',
-					href: '/accounts'
+					href: '/settings/accounts'
 				}
 			: unfinished && ACCOUNT_KINDS[unfinished.kind].signIn
 				? {
@@ -65,7 +65,7 @@
 						title: `Finish signing in to ${unfinished.name}`,
 						hint: 'The account is added but not signed in yet.',
 						action: 'Finish signing in',
-						href: signingIn.includes(unfinished.id) ? `/accounts?signin=${unfinished.id}` : '/accounts'
+						href: signingIn.includes(unfinished.id) ? `/settings/accounts?signin=${unfinished.id}` : '/settings/accounts'
 					}
 				: unfinished
 					? {
@@ -74,7 +74,7 @@
 							title: `Fix ${unfinished.name}`,
 							hint: "Its check failed: the key or settings don't work yet.",
 							action: 'Open Accounts',
-							href: '/accounts'
+							href: '/settings/accounts'
 						}
 				: {
 						key: 'model',
@@ -82,7 +82,7 @@
 						title: 'Connect a model account',
 						hint: 'Your Claude plan or API key, Claude on AWS, Google Cloud or Azure, OpenAI or Gemini.',
 						action: 'Add a model account',
-						href: '/accounts?add=model',
+						href: '/settings/accounts?add=model',
 						onclick: onaddmodel
 					},
 		{
@@ -96,7 +96,7 @@
 						? 'Add a GitHub token on Accounts whenever you need private repos or pull requests.'
 						: 'For private repos, pushing and pull requests. Public repos work without it.',
 			action: 'Add a GitHub token',
-			href: '/accounts?add=github',
+			href: '/settings/accounts?add=github',
 			onclick: onaddgithub,
 			optional: true
 		},

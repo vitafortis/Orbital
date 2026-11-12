@@ -15,7 +15,7 @@
 	} from '@lucide/svelte';
 	import Dialog from '#lib/components/Dialog.svelte';
 	import BrandIcon from '#lib/components/BrandIcon.svelte';
-	import PageHeader from '#lib/components/PageHeader.svelte';
+	import SettingsTabs from '#lib/components/SettingsTabs.svelte';
 	import RepoPicker from '#lib/components/RepoPicker.svelte';
 	import EmptyState from '#lib/components/EmptyState.svelte';
 	import Switch from '#lib/components/Switch.svelte';
@@ -173,7 +173,7 @@
 <svelte:head><title>Automations · Orbital</title></svelte:head>
 
 <div class="h-full overflow-y-auto">
-	<PageHeader title="Automations" description="Start sessions from Linear issues: label an issue, and an agent picks it up on its own branch." />
+	<SettingsTabs admin={data.viewer?.admin ?? false} description="Start sessions from Linear issues: label an issue, and an agent picks it up on its own branch." />
 
 	<div class="max-w-4xl space-y-8 px-4 pb-12 sm:px-8">
 		<section class="card p-5">
@@ -243,7 +243,7 @@
 							<EmptyState title="Connect Linear to add rules" body="A rule starts a session when an issue gets a label: Claude works on it, comments on the issue and opens the pull request." />
 						{:else if !data.accounts.length}
 							<EmptyState title="Add a model account first" body="Rules start sessions as one of your model accounts.">
-								{#snippet action()}<a class="btn btn-primary btn-sm" href="/accounts?add=model">Add a model account</a>{/snippet}
+								{#snippet action()}<a class="btn btn-primary btn-sm" href="/settings/accounts?add=model">Add a model account</a>{/snippet}
 							</EmptyState>
 						{:else}
 							<EmptyState title="No rules yet" body="Add one, then label an issue in Linear: a session starts on it within a minute.">

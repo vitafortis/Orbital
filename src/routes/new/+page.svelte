@@ -469,7 +469,7 @@
 				<div class="text-[0.8125rem]">
 					<p class="font-medium">Connect a model account first</p>
 					<p class="mt-0.5 text-muted-foreground">Sessions run as one of your accounts: a Claude login or key, Claude on your cloud, OpenAI or Google.</p>
-					<a href="/accounts?add=model" class="btn btn-primary btn-sm mt-3">Add a model account</a>
+					<a href="/settings/accounts?add=model" class="btn btn-primary btn-sm mt-3">Add a model account</a>
 				</div>
 			</div>
 		{/if}
@@ -548,7 +548,7 @@
 					<RepoPicker logins={[...new Set(data.githubAccounts.map((a) => a.login))]} bind:value={repo} onpick={(r) => (picked = r)} />
 					{#if repo && !parsed}<p class="mt-1.5 text-xs text-danger">Enter owner/name, or an https git URL.</p>{/if}
 					{#if !data.githubAccounts.length}
-						<p class="mt-1.5 text-xs text-muted-foreground">Public repos and git URLs only. <a href="/accounts?add=github" class="text-primary hover:underline">Add a GitHub token</a> for private ones and pushing.</p>
+						<p class="mt-1.5 text-xs text-muted-foreground">Public repos and git URLs only. <a href="/settings/accounts?add=github" class="text-primary hover:underline">Add a GitHub token</a> for private ones and pushing.</p>
 					{:else if access}
 						<div class="mt-2 text-xs">
 							{#if !access.tokens}
@@ -560,7 +560,7 @@
 								<ul class="mt-1 space-y-1">
 									{#each access.tokens as t (t.accountId)}
 										{@const a = ghAccount(t.accountId)}
-										<li class="text-muted-foreground"><span class="font-medium text-foreground">{a ? githubLabel(a) : 'Token'}</span>: {t.reason} <a class="text-primary hover:underline" href="/accounts?check={t.accountId}&repo={encodeURIComponent(access.repo)}#github">What GitHub answers →</a></li>
+										<li class="text-muted-foreground"><span class="font-medium text-foreground">{a ? githubLabel(a) : 'Token'}</span>: {t.reason} <a class="text-primary hover:underline" href="/settings/accounts?check={t.accountId}&repo={encodeURIComponent(access.repo)}#github">What GitHub answers →</a></li>
 									{/each}
 								</ul>
 							{:else}
@@ -740,7 +740,7 @@
 						</select>
 						{#if account && ACCOUNT_KINDS[account.kind].signIn && account.status === 'signed_out'}
 							<p class="mt-1.5 flex items-start gap-1.5 text-xs text-warning">
-								<CircleAlert class="mt-px size-3.5 shrink-0" /><span>Not signed in yet. <a class="underline" href="/accounts">Sign in</a>{#if agent === 'claude'}, or run <code class="font-mono">/login</code> in the session's terminal{/if}.</span>
+								<CircleAlert class="mt-px size-3.5 shrink-0" /><span>Not signed in yet. <a class="underline" href="/settings/accounts">Sign in</a>{#if agent === 'claude'}, or run <code class="font-mono">/login</code> in the session's terminal{/if}.</span>
 							</p>
 						{/if}
 					</div>

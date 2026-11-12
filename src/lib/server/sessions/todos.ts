@@ -83,11 +83,11 @@ export function setTodoDone(sessionId: string, id: string, done: boolean): TodoI
 export function systemTodos(now = Date.now()): SystemTodo[] {
 	const out: SystemTodo[] = [];
 	for (const a of listAccounts()) {
-		if (a.status === 'signed_out') out.push({ id: `account:${a.id}`, title: `Sign in to ${a.name} again`, why: "Its sessions can't start the agent until it's signed in.", href: '/accounts' });
+		if (a.status === 'signed_out') out.push({ id: `account:${a.id}`, title: `Sign in to ${a.name} again`, why: "Its sessions can't start the agent until it's signed in.", href: '/settings/accounts' });
 	}
 	for (const l of listAwsLogins()) {
 		if (!l.renewable && l.expiresAt && Date.parse(l.expiresAt) < now) {
-			out.push({ id: `aws:${l.id}`, title: `Sign in to AWS SSO again: ${l.label ?? new URL(l.startUrl).hostname}`, why: 'Sessions using its profiles get no new AWS credentials until then.', href: '/accounts#aws' });
+			out.push({ id: `aws:${l.id}`, title: `Sign in to AWS SSO again: ${l.label ?? new URL(l.startUrl).hostname}`, why: 'Sessions using its profiles get no new AWS credentials until then.', href: '/settings/accounts#aws' });
 		}
 	}
 	return out;

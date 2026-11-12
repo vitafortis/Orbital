@@ -2,7 +2,6 @@
 	import { untrack } from 'svelte';
 	import { invalidateAll } from '$app/navigation';
 	import { CircleAlert, CircleCheck, Copy, KeyRound, LoaderCircle, Network, Save, ShieldCheck, Trash2, Users } from '@lucide/svelte';
-	import PageHeader from '#lib/components/PageHeader.svelte';
 	import SettingsTabs from '#lib/components/SettingsTabs.svelte';
 	import Switch from '#lib/components/Switch.svelte';
 	import { api, errorMessage } from '#lib/client/api.ts';
@@ -124,8 +123,7 @@
 <svelte:head><title>Sign-in · Orbital</title></svelte:head>
 
 <div class="h-full overflow-y-auto">
-	<PageHeader title="Settings" description="Where sessions run, what every session container gets, and who can sign in." />
-	<SettingsTabs admin />
+	<SettingsTabs admin description="Who can sign in to Orbital, and how." />
 
 	<form class="max-w-4xl space-y-6 px-4 pt-6 pb-12 sm:px-8" onsubmit={save}>
 		{#if data.envDisabled}

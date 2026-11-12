@@ -83,7 +83,7 @@
 		{/snippet}
 	</PageHeader>
 
-	<div class="mx-auto max-w-3xl space-y-6 px-4 pb-10 sm:px-8">
+	<div class="max-w-3xl space-y-6 px-4 pb-10 sm:px-8">
 		<label class="flex items-center justify-between gap-3 rounded-lg border border-border bg-surface px-3 py-2.5">
 			<span class="text-[0.8125rem]">
 				<span class="block font-medium">Tell the session when I tick something</span>
@@ -127,7 +127,13 @@
 
 			{#if !groups.length && !system.length}
 				<div class="card">
-					<EmptyState icon={ListChecks} title="Nothing for you to do" body="When a session needs you to log in, run a command or approve something, it lands here, with the exact command." />
+					<EmptyState
+						icon={ListChecks}
+						title="Nothing for you to do"
+						body="When a session needs you to log in, run a command or approve something, Claude adds it here with the exact command (sessions started on this release, or after Session → Restart Claude). You can add your own too."
+					>
+						{#snippet action()}{#if shown.list.length}<button class="btn btn-secondary btn-sm" onclick={openAdd}><Plus />Add one</button>{/if}{/snippet}
+					</EmptyState>
 				</div>
 			{/if}
 
