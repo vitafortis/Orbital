@@ -7,6 +7,6 @@ import type { RequestHandler } from './$types';
 export const POST: RequestHandler = handler(async ({ request, locals }) => {
 	requireAdmin(locals);
 	const b = await body(request);
-	const accounts = await addGithubApp(str(b, 'appId', { required: true, max: 12 })!, str(b, 'privateKey', { required: true, max: 10_000 })!, str(b, 'label', { max: 80 }) ?? null);
+	const accounts = await addGithubApp(str(b, 'appId', { required: true, max: 60 })!, str(b, 'privateKey', { required: true, max: 10_000 })!, str(b, 'label', { max: 80 }) ?? null);
 	return json({ accounts }, { status: 201 });
 });
