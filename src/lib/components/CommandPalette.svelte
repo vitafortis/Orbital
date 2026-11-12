@@ -27,9 +27,9 @@
 		})),
 		{ id: 'new', label: 'New session', icon: Plus, run: () => goto('/new') },
 		{ id: 'review', label: 'Review a pull request', hint: '/code-review', icon: Wand, run: () => goto('/new?mode=skill&command=/code-review') },
-		{ id: 'automations', label: 'Automations', hint: 'Linear', icon: Workflow, run: () => goto('/automations') },
+		{ id: 'automations', label: 'Automations', hint: 'Linear', icon: Workflow, run: () => goto('/settings/automations') },
 		{ id: 'home', label: 'All sessions', icon: LayoutDashboard, run: () => goto('/') },
-		{ id: 'accounts', label: 'Accounts', hint: 'Claude and GitHub', icon: KeyRound, run: () => goto('/accounts') },
+		{ id: 'accounts', label: 'Accounts', hint: 'Claude and GitHub', icon: KeyRound, run: () => goto('/settings/accounts') },
 		{ id: 'settings', label: 'Settings', icon: Settings, run: () => goto('/settings') },
 		{ id: 'theme', label: theme.value === 'dark' ? 'Light theme' : 'Dark theme', icon: Moon, run: () => setTheme(theme.value === 'dark' ? 'light' : 'dark') }
 	]);
