@@ -539,7 +539,7 @@ async function appCall<T>(jwt: string, path: string, method = 'GET'): Promise<T>
 		const why = b.message ? ` GitHub says: “${b.message}”.` : '';
 		throw new BadRequest(
 			res.status === 401
-				? `GitHub turned the app down.${why} Check that the App ID is the number on the app's settings page (not its Client ID), that the private key is one of the app's current keys, and that this server's clock is right.`
+				? `GitHub turned the app down.${why} Check that the App ID or Client ID is this app's, that the private key is one of its current keys (their fingerprints are on the app's settings page), and that this server's clock is right.`
 				: `GitHub: ${b.message ?? res.statusText}`
 		);
 	}
@@ -565,7 +565,8 @@ type GhInstallation = { id: number; account: { login: string; type: string; avat
  * account it's installed on, with an hour-long token Orbital keeps renewing.
  */
 export async function addGithubApp(appId: string, privateKey: string, label: string | null): Promise<GithubAccount[]> {
-	if (!/^\d{1,12}$/.test(appId)) throw new BadRequest('The App ID is a number, on the app\'s settings page');
+	// GitHub takes either as the JWT's issuer, and recommends the Client ID.
+	if (!/^\d{1,12}$/.test(appId) && !/^Iv[A-Za-z0-9._-]{4,50}$/.test(appId)) throw new BadRequest("Use the app's App ID (a number) or its Client ID (Iv…), both at the top of the app's settings page");
 	const key = privateKey.trim();
 	if (!/^-----BEGIN (RSA )?PRIVATE KEY-----[\s\S]+-----END (RSA )?PRIVATE KEY-----$/.test(key)) throw new BadRequest('Paste the whole private key (.pem), from -----BEGIN to -----END');
 	let jwt: string;

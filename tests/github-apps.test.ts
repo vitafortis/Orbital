@@ -186,3 +186,19 @@ test("a private key Orbital can't sign with fails in words, not OpenSSL's", asyn
 	await assert.rejects(github.renewGithubToken(a.id), /can't sign with this app's private key/);
 	assert.match(store.getGithubAccount(a.id)!.renewError!, /can't sign/);
 });
+
+test("an app can be added by its Client ID as well as its App ID", async () => {
+	const iss: string[] = [];
+	const gh = fakeGithub((c) => {
+		iss.push(JSON.parse(Buffer.from((c.auth ?? '').split('.')[1] ?? '', 'base64url').toString() || '{}').iss);
+		if (c.path === '/app') return Response.json({ slug: 'by-client', name: 'By client ID' });
+		if (c.path.startsWith('/app/installations?')) return Response.json([{ id: 8, account: { login: 'acme', type: 'Organization', avatar_url: null } }]);
+		if (c.path === '/app/installations/8/access_tokens') return Response.json({ token: 'ghs_c', expires_at: new Date(Date.now() + 3600_000).toISOString() });
+		return Response.json({ message: 'Not Found' }, { status: 404 });
+	});
+	const [a] = await github.addGithubApp('Iv23liAbCdEf123456', pem, null);
+	assert.equal(a.name, 'By client ID');
+	assert.equal(iss[0], 'Iv23liAbCdEf123456');
+	await assert.rejects(github.addGithubApp('not-an-id', pem, null), /App ID \(a number\) or its Client ID/);
+	gh.restore();
+});

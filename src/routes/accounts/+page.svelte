@@ -935,10 +935,10 @@
 			<li>Repository permissions: <span class="text-foreground">Contents, Pull requests, Workflows</span> read and write; <span class="text-foreground">Metadata</span> read. Add <span class="text-foreground">Administration</span> to create repos.</li>
 			<li>Generate a <span class="text-foreground">private key</span>, then <span class="text-foreground">Install App</span> on the organization and pick its repos.</li>
 		</ol>
-		<div class="grid gap-3 sm:grid-cols-[9rem_1fr]">
+		<div class="grid gap-3 sm:grid-cols-[12rem_1fr]">
 			<div>
-				<label class="label" for="app-id">App ID</label>
-				<input id="app-id" class="input font-mono text-xs" inputmode="numeric" placeholder="123456" bind:value={app.appId} required />
+				<label class="label" for="app-id">App ID or Client ID</label>
+				<input id="app-id" class="input font-mono text-xs" placeholder="123456 or Iv23li…" autocomplete="off" spellcheck="false" bind:value={app.appId} required />
 			</div>
 			<div>
 				<label class="label" for="app-label">Name <span class="font-normal text-muted-foreground/70">(optional)</span></label>
