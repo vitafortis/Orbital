@@ -416,6 +416,51 @@ export async function searchBranches(account: GithubAccount | null, fullName: st
 	return refs.slice(0, 50).map((r) => r.ref.replace(/^refs\/heads\//, ''));
 }
 
+type GhContent = { type: 'file' | 'dir' | 'symlink' | 'submodule'; path: string; size: number; content?: string; encoding?: string };
+
+/**
+ * A folder of a repo (or one file) at a branch, for a Library skill: the newest commit that
+ * touched it, and, when that differs from `knownSha`, its files. Small skills only: up to 50
+ * files and 2 MB.
+ */
+export async function fetchRepoFolder(
+	account: GithubAccount | null,
+	fullName: string,
+	path: string,
+	ref: string | null,
+	knownSha: string | null = null
+): Promise<{ ref: string; sha: string | null; files: Record<string, Buffer> | null }> {
+	if (!FULL_NAME.test(fullName)) throw new BadRequest('Enter the repository as owner/name');
+	const token = tokenOf(account);
+	const branch = ref || (await gh<{ default_branch: string }>(token, `/repos/${fullName}`)).data.default_branch;
+	const clean = path.replace(/^\/+|\/+$/g, '');
+	const enc = (p: string) => p.split('/').map(encodeURIComponent).join('/');
+	const commits = await gh<{ sha: string }[]>(token, `/repos/${fullName}/commits?sha=${encodeURIComponent(branch)}&path=${encodeURIComponent(clean)}&per_page=1`);
+	const sha = commits.data[0]?.sha ?? null;
+	if (!sha) throw new BadRequest(`${fullName} has no ${clean} on ${branch}`);
+	if (sha === knownSha) return { ref: branch, sha, files: null };
+	const files: Record<string, Buffer> = {};
+	let total = 0;
+	async function walk(p: string, rel: string) {
+		const res = await ghFetch(token, `/repos/${fullName}/contents/${enc(p)}?ref=${encodeURIComponent(branch)}`);
+		if (!res.ok) throw new BadRequest(res.status === 404 ? `${fullName} has no ${p} on ${branch}` : `GitHub: ${res.statusText}`);
+		const body = (await res.json()) as GhContent | GhContent[];
+		for (const item of Array.isArray(body) ? body : [body]) {
+			const name = Array.isArray(body) ? `${rel}${item.path.split('/').pop()}` : (item.path.split('/').pop() ?? 'SKILL.md');
+			if (item.type === 'dir') await walk(item.path, `${name}/`);
+			else if (item.type === 'file') {
+				if (Object.keys(files).length >= 50) throw new BadRequest('That skill has more than 50 files');
+				total += item.size;
+				if (total > 2 * 1024 * 1024) throw new BadRequest('That skill is over 2 MB');
+				const c = item.content !== undefined ? item : ((await gh<GhContent>(token, `/repos/${fullName}/contents/${enc(item.path)}?ref=${encodeURIComponent(branch)}`)).data);
+				files[name] = Buffer.from(c.content ?? '', 'base64');
+			}
+		}
+	}
+	await walk(clean, '');
+	return { ref: branch, sha, files };
+}
+
 type GhPull = {
 	number: number;
 	title: string;

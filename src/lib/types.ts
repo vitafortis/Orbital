@@ -374,11 +374,38 @@ export interface GithubPull {
 }
 
 /** A skill or slash command a session can start with. */
+/**
+ * A skill in the Library, installed into the Claude accounts' skills at each launch: written in
+ * Orbital, or a skill folder in a GitHub repo, fetched from its default branch (or a named one),
+ * so a pull request under review can't change the skill reviewing it.
+ */
+export interface LibrarySkill {
+	id: string;
+	/** The command: /name. */
+	name: string;
+	description: string;
+	source: 'here' | 'repo';
+	/** Written here: the SKILL.md. */
+	body: string | null;
+	/** From a repo: owner/name, a branch (null for the default one), the skill's folder (or one .md file), and the GitHub connection to read it with. */
+	repo: string | null;
+	ref: string | null;
+	path: string | null;
+	githubAccountId: string | null;
+	/** The Claude accounts whose sessions get it; empty for all of them. */
+	accountIds: string[];
+	enabled: boolean;
+	/** From a repo: the last fetch, the commit it came from and how many files, or why it failed. */
+	synced: { sha: string | null; at: string; files: number; error: string | null } | null;
+	createdAt: string;
+	updatedAt: string;
+}
+
 export interface SkillOption {
 	command: string;
 	description: string;
-	/** Where it comes from: Claude Code itself, or the account's own skills and commands. */
-	source: 'built-in' | 'account';
+	/** Where it comes from: Claude Code itself, the Library, or the account's own skills and commands. */
+	source: 'built-in' | 'library' | 'account';
 	/** Takes a pull request number. */
 	takesPr?: boolean;
 }
