@@ -142,9 +142,21 @@ test("for an app that can't open a repo, Orbital says what the installation has 
 	gh.restore();
 });
 
-test("when GitHub turns the app down, its own reason is in the message", async () => {
-	const gh = fakeGithub(() => Response.json({ message: "'Issued at' claim ('iat') must be an Integer representing a time in the past." }, { status: 401 }));
-	await assert.rejects(github.addGithubApp('123', pem, null), /turned the app down\. GitHub says: “'Issued at' claim.*clock is right/);
+test("when GitHub turns the app down, Orbital says whether it's this server's clock or the ID and key", async () => {
+	const { execFileSync } = await import('node:child_process');
+	const { writeFileSync } = await import('node:fs');
+	// GitHub's reply carries GitHub's time: two minutes behind ours means our clock is ahead.
+	let gh = fakeGithub(() => Response.json({ message: 'Bad credentials' }, { status: 401, headers: { date: new Date(Date.now() - 120_000).toUTCString() } }));
+	await assert.rejects(github.addGithubApp('123', pem, null), /“Bad credentials”\): this server's clock is 1[12]\d seconds ahead of GitHub's/);
+	gh.restore();
+	// Clocks agree: the key's fingerprint, as GitHub lists it and as openssl computes it.
+	gh = fakeGithub(() => Response.json({ message: 'Bad credentials' }, { status: 401, headers: { date: new Date().toUTCString() } }));
+	const file = join(dataDir, 'key.pem');
+	writeFileSync(file, pem);
+	const der = execFileSync('openssl', ['rsa', '-in', file, '-pubout', '-outform', 'DER'], { stdio: ['ignore', 'pipe', 'ignore'] });
+	const openssl = `SHA256:${(await import('node:crypto')).createHash('sha256').update(der).digest('base64')}`;
+	assert.equal(github.keyFingerprint(pem), openssl);
+	await assert.rejects(github.addGithubApp('123', pem, null), (err: Error) => err.message.includes('clock agrees') && err.message.includes(openssl));
 	gh.restore();
 });
 
@@ -183,7 +195,7 @@ test("a read-only app is labelled so, and its sessions' Claude is told not to pu
 
 test("a private key Orbital can't sign with fails in words, not OpenSSL's", async () => {
 	const a = store.upsertGithubAccount({ login: 'x[bot]', name: 'X', avatarUrl: null, kind: 'app', token: 'ghs_x', scopes: null, orgs: [], gitName: 'x', gitEmail: 'x', expiresAt: new Date().toISOString(), renewal: { kind: 'app', appId: '9', privateKey: 'not a key', installationId: 9 } });
-	await assert.rejects(github.renewGithubToken(a.id), /can't sign with this app's private key/);
+	await assert.rejects(github.renewGithubToken(a.id), /can't sign with this private key/);
 	assert.match(store.getGithubAccount(a.id)!.renewError!, /can't sign/);
 });
 
