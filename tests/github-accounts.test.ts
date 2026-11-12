@@ -203,3 +203,23 @@ test('githubKind tells org tokens from personal ones, classic tokens and sign-in
 	assert.deepEqual(githubKind({ ...a, scopes: 'repo, read:org' }), { label: 'Classic token', org: null });
 	assert.deepEqual(githubKind({ ...a, kind: 'oauth', scopes: 'repo' }), { label: 'GitHub sign-in', org: null });
 });
+
+test('pull requests by number or words, and branches by prefix, past the loaded lists', async () => {
+	const pull = (n: number) => ({ number: n, title: `Fix ${n}`, user: { login: 'nate' }, draft: false, head: { ref: `fix/${n}`, repo: { full_name: 'acme/api' } }, updated_at: '2026-11-12T00:00:00Z', html_url: '' });
+	const asked: string[] = [];
+	const restore = fakeGithub((url) => {
+		asked.push(url.pathname + url.search);
+		if (url.pathname === '/repos/acme/api/pulls/1234') return Response.json(pull(1234));
+		if (url.pathname === '/search/issues') return Response.json({ items: [{ number: 77, title: 'Rate limit sign-in', user: { login: 'kim' }, draft: true, updated_at: '2026-11-11T00:00:00Z', html_url: '' }] });
+		if (url.pathname === '/repos/acme/api/git/matching-refs/heads/release/2026') return Response.json([{ ref: 'refs/heads/release/2026.11' }, { ref: 'refs/heads/release/2026.12' }]);
+		return new Response('{"message":"Not Found"}', { status: 404 });
+	});
+	assert.deepEqual((await github.searchPulls(null, 'acme/api', '#1234')).map((p) => [p.number, p.headRef]), [[1234, 'fix/1234']]);
+	assert.deepEqual(await github.searchPulls(null, 'acme/api', '99'), []);
+	const found = await github.searchPulls(null, 'acme/api', 'rate limit');
+	assert.deepEqual(found.map((p) => [p.number, p.author, p.draft]), [[77, 'kim', true]]);
+	assert.match(decodeURIComponent(asked.find((a) => a.startsWith('/search/issues'))!), /q=rate limit repo:acme\/api is:pr is:open/);
+	assert.deepEqual(await github.searchBranches(null, 'acme/api', 'release/2026'), ['release/2026.11', 'release/2026.12']);
+	assert.deepEqual(await github.searchBranches(null, 'acme/api', 'has space'), []);
+	restore();
+});
