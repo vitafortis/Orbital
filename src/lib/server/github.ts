@@ -4,7 +4,7 @@
  * sign-ins can expire, and are renewed); or a GitHub App's installation, acting as its bot.
  * Tokens list repositories and are handed to session containers for clone and push.
  */
-import { createSign } from 'node:crypto';
+import { createHash, createPublicKey, createSign } from 'node:crypto';
 import { randomToken } from './crypto.ts';
 import { config } from './config.ts';
 import { BadRequest } from './http.ts';
@@ -531,30 +531,46 @@ export function appJwt(appId: string, privateKey: string, now = Date.now()): str
 	return `${head}.${body}.${b64url(sig)}`;
 }
 
-async function appCall<T>(jwt: string, path: string, method = 'GET'): Promise<T> {
+/** The fingerprint GitHub lists for an app's private key (the app's settings page → Private keys). */
+export function keyFingerprint(privateKey: string): string {
+	const der = createPublicKey(privateKey).export({ type: 'spki', format: 'der' });
+	return `SHA256:${createHash('sha256').update(der).digest('base64')}`;
+}
+
+type AppKey = { appId: string; privateKey: string };
+
+/**
+ * A call as the app itself (a JWT signed with its key). GitHub answers "Bad credentials" to every
+ * kind of bad JWT, so when it does, this says which it is: this server's clock (GitHub's reply
+ * has GitHub's time), or else the App ID or key, with the key's fingerprint to compare.
+ */
+async function appCall<T>(app: AppKey, path: string, method = 'GET'): Promise<T> {
+	let jwt: string;
+	try {
+		jwt = appJwt(app.appId, app.privateKey);
+	} catch {
+		throw new BadRequest("Orbital can't sign with this private key: use the .pem GitHub generated for the app.");
+	}
 	const res = await ghFetch(jwt, path, { method, ...(method === 'POST' ? { body: {} } : {}) });
 	const b = (await res.json().catch(() => ({}))) as T & { message?: string };
-	if (!res.ok) {
-		// GitHub's own reason says which: an unknown app, a key that isn't the app's, or a clock that's off.
-		const why = b.message ? ` GitHub says: “${b.message}”.` : '';
+	if (res.ok) return b;
+	if (res.status !== 401) throw new BadRequest(`GitHub: ${b.message ?? res.statusText}`);
+	const said = b.message ? ` (“${b.message}”)` : '';
+	const github = Date.parse(res.headers.get('date') ?? '');
+	const skew = Number.isFinite(github) ? Math.round((Date.now() - github) / 1000) : 0;
+	if (Math.abs(skew) > 30) {
 		throw new BadRequest(
-			res.status === 401
-				? `GitHub turned the app down.${why} Check that the App ID or Client ID is this app's, that the private key is one of its current keys (their fingerprints are on the app's settings page), and that this server's clock is right.`
-				: `GitHub: ${b.message ?? res.statusText}`
+			`GitHub turned the app down${said}: this server's clock is ${Math.abs(skew)} seconds ${skew > 0 ? 'ahead of' : 'behind'} GitHub's, and GitHub only accepts an app's sign-in within a minute. Set the server's time (NTP), then try again.`
 		);
 	}
-	return b;
+	throw new BadRequest(
+		`GitHub turned the app down${said}. This server's clock agrees with GitHub's, so it's the ID or the key: check that ${app.appId} is this app's App ID or Client ID, and that the key's fingerprint, ${keyFingerprint(app.privateKey)}, is listed under Private keys on the app's settings page.`
+	);
 }
 
 /** An hour-long token for the installation, with the permissions GitHub granted it (as accepted by the account's owners). */
 async function installationToken(appId: string, privateKey: string, installationId: number): Promise<{ token: string; expiresAt: string; permissions: Record<string, string> | null }> {
-	let jwt: string;
-	try {
-		jwt = appJwt(appId, privateKey);
-	} catch {
-		throw new BadRequest("Orbital can't sign with this app's private key. Add the app again with one of its current keys.");
-	}
-	const r = await appCall<{ token: string; expires_at: string; permissions?: Record<string, string> }>(jwt, `/app/installations/${installationId}/access_tokens`, 'POST');
+	const r = await appCall<{ token: string; expires_at: string; permissions?: Record<string, string> }>({ appId, privateKey }, `/app/installations/${installationId}/access_tokens`, 'POST');
 	return { token: r.token, expiresAt: r.expires_at, permissions: r.permissions ?? null };
 }
 
@@ -569,14 +585,8 @@ export async function addGithubApp(appId: string, privateKey: string, label: str
 	if (!/^\d{1,12}$/.test(appId) && !/^Iv[A-Za-z0-9._-]{4,50}$/.test(appId)) throw new BadRequest("Use the app's App ID (a number) or its Client ID (Iv…), both at the top of the app's settings page");
 	const key = privateKey.trim();
 	if (!/^-----BEGIN (RSA )?PRIVATE KEY-----[\s\S]+-----END (RSA )?PRIVATE KEY-----$/.test(key)) throw new BadRequest('Paste the whole private key (.pem), from -----BEGIN to -----END');
-	let jwt: string;
-	try {
-		jwt = appJwt(appId, key);
-	} catch {
-		throw new BadRequest("That private key can't sign: paste the .pem GitHub generated for the app");
-	}
-	const app = await appCall<{ slug: string; name: string }>(jwt, '/app');
-	const installations = await appCall<GhInstallation[]>(jwt, '/app/installations?per_page=100');
+	const app = await appCall<{ slug: string; name: string }>({ appId, privateKey: key }, '/app');
+	const installations = await appCall<GhInstallation[]>({ appId, privateKey: key }, '/app/installations?per_page=100');
 	if (!installations.length) throw new BadRequest(`${app.name} isn't installed anywhere yet. Install it on the organization (the app's page → Install App), then add it again.`);
 	// Commits from sessions use the bot's noreply address.
 	const bot = `${app.slug}[bot]`;
