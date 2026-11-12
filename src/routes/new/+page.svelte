@@ -676,7 +676,7 @@
 								onclick={() => (command = o.command)}
 							>
 								<span class="min-w-0">
-									<span class="flex items-center gap-1.5 font-mono text-[0.8125rem] font-medium">{o.command}{#if o.source === 'account'}<span class="badge">yours</span>{/if}</span>
+									<span class="flex items-center gap-1.5 font-mono text-[0.8125rem] font-medium">{o.command}{#if o.source === 'account'}<span class="badge">yours</span>{:else if o.source === 'library'}<span class="badge badge-primary">Library</span>{/if}</span>
 									{#if o.description}<span class="line-clamp-2 block text-xs text-muted-foreground">{o.description}</span>{/if}
 								</span>
 							</button>

@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { invalidateAll } from '$app/navigation';
-	import { Globe, LoaderCircle, MessageSquareText, Pencil, Plug, Plus, SquareTerminal, Trash2 } from '@lucide/svelte';
+	import { FolderGit2, Globe, LoaderCircle, MessageSquareText, Pencil, Plug, Plus, RefreshCw, SquareTerminal, Trash2, Wand } from '@lucide/svelte';
 	import { untrack } from 'svelte';
 	import BrandIcon from '#lib/components/BrandIcon.svelte';
 	import Dialog from '#lib/components/Dialog.svelte';
@@ -9,7 +9,8 @@
 	import Switch from '#lib/components/Switch.svelte';
 	import { api, errorMessage } from '#lib/client/api.ts';
 	import { confirmAction, toast } from '#lib/client/state.svelte.ts';
-	import type { McpKind, McpServer } from '#lib/types.ts';
+	import { ago } from '#lib/client/format.ts';
+	import type { LibrarySkill, McpKind, McpServer } from '#lib/types.ts';
 	import type { PageProps } from './$types';
 
 	/**
@@ -126,6 +127,65 @@
 		if (q.has('notion') || q.has('notion_error')) history.replaceState(history.state, '', location.pathname + location.hash);
 	});
 
+	// ── skills ──
+	const SKILL_TEMPLATE = '---\nname: my-skill\ndescription: What it does, and when Claude should use it.\n---\n\nWhat to do, step by step. $ARGUMENTS is what follows the command (a PR number, say).\n';
+	let skillOpen = $state(false);
+	let editingSkill = $state<LibrarySkill | null>(null);
+	let sk = $state({ source: 'repo' as LibrarySkill['source'], name: '', description: '', body: '', repo: '', ref: '', path: '', githubAccountId: '', accountIds: [] as string[], enabled: true });
+	let skillBusy = $state(false);
+	let skillError = $state('');
+	function openSkill(s: LibrarySkill | null) {
+		editingSkill = s;
+		sk = s
+			? { source: s.source, name: s.name, description: s.description, body: s.body ?? '', repo: s.repo ?? '', ref: s.ref ?? '', path: s.path ?? '', githubAccountId: s.githubAccountId ?? '', accountIds: [...s.accountIds], enabled: s.enabled }
+			: { source: 'repo', name: '', description: '', body: SKILL_TEMPLATE, repo: '', ref: '', path: '', githubAccountId: data.githubAccounts[0]?.id ?? '', accountIds: [], enabled: true };
+		skillError = '';
+		skillOpen = true;
+	}
+	async function readSkillFile(e: Event & { currentTarget: HTMLInputElement }) {
+		const f = e.currentTarget.files?.[0];
+		if (!f) return;
+		sk.body = await f.text();
+		if (!sk.name) sk.name = (/^name:\s*(\S+)/m.exec(sk.body)?.[1] ?? '').toLowerCase();
+	}
+	async function saveSkill(e: SubmitEvent) {
+		e.preventDefault();
+		skillBusy = true;
+		skillError = '';
+		try {
+			const body = { ...sk, name: sk.name.trim(), ref: sk.ref.trim() || null, path: sk.path.trim() || null, githubAccountId: sk.githubAccountId || null, description: sk.description.trim() || null };
+			const r = editingSkill ? await api.patch<LibrarySkill>(`/api/library/skills/${editingSkill.id}`, body) : await api.post<LibrarySkill>('/api/library/skills', body);
+			skillOpen = false;
+			toast('success', `${editingSkill ? 'Saved' : 'Added'} /${r.name}`, r.synced ? `Fetched ${r.synced.files} file${r.synced.files === 1 ? '' : 's'} from ${r.repo}. Sessions get it when Claude next starts.` : 'Sessions get it when Claude next starts.');
+			await invalidateAll();
+		} catch (err) {
+			skillError = errorMessage(err);
+		}
+		skillBusy = false;
+	}
+	let syncing = $state<string | null>(null);
+	async function syncSkill(s: LibrarySkill) {
+		syncing = s.id;
+		try {
+			const r = await api.post<LibrarySkill>(`/api/library/skills/${s.id}/sync`);
+			toast('success', `Fetched /${s.name}`, `${r.synced?.files} file${r.synced?.files === 1 ? '' : 's'}, from ${r.synced?.sha?.slice(0, 7)}.`);
+		} catch (err) {
+			toast('error', `Couldn't fetch /${s.name}`, errorMessage(err));
+		}
+		await invalidateAll();
+		syncing = null;
+	}
+	async function setSkillEnabled(s: LibrarySkill, enabled: boolean) {
+		await api.patch(`/api/library/skills/${s.id}`, { ...s, enabled }).catch((err) => toast('error', `Couldn't change /${s.name}`, errorMessage(err)));
+		await invalidateAll();
+	}
+	async function removeSkill(s: LibrarySkill) {
+		const ok = await confirmAction({ title: `Remove /${s.name}?`, body: 'Sessions stop getting it when Claude next starts.', confirmLabel: 'Remove', danger: true });
+		if (!ok) return;
+		await api.del(`/api/library/skills/${s.id}`).catch((err) => toast('error', `Couldn't remove /${s.name}`, errorMessage(err)));
+		await invalidateAll();
+	}
+
 	// ── reply style ──
 	let style = $state(untrack(() => ({ ...data.replyStyle })));
 	let styleSaving = $state(false);
@@ -204,6 +264,53 @@
 				{/if}
 			</div>
 			<p class="mt-2 text-xs text-muted-foreground">Applies when Claude next starts in a session. Codex and Gemini sessions don't get it.</p>
+		</section>
+
+		<section id="skills">
+			<div class="mb-3 flex flex-wrap items-end justify-between gap-3">
+				<div>
+					<h2 class="flex items-center gap-2 text-[0.9375rem] font-semibold tracking-tight"><Wand class="size-4" />Skills</h2>
+					<p class="max-w-2xl text-xs text-muted-foreground">
+						Skills every Claude session gets, whatever repo or branch it has checked out: written here, or a skill folder in a repo, fetched from its default branch (or one you name), so a pull request under review can't change the skill reviewing it. They show under Run a skill.
+					</p>
+				</div>
+				{#if admin}<button class="btn btn-secondary btn-sm" onclick={() => openSkill(null)}><Plus />Add a skill</button>{/if}
+			</div>
+			<div class="card divide-y divide-border">
+				{#each data.skills as s (s.id)}
+					<div class="flex flex-wrap items-center gap-3 px-4 py-3 {s.enabled ? '' : 'opacity-60'}">
+						{#if s.source === 'repo'}<FolderGit2 class="size-4 shrink-0 text-muted-foreground" />{:else}<Wand class="size-4 shrink-0 text-muted-foreground" />{/if}
+						<div class="min-w-0 flex-1 basis-60">
+							<p class="flex flex-wrap items-center gap-2 text-[0.8125rem] font-medium">
+								<span class="font-mono">/{s.name}</span>
+								<span class="badge">{s.source === 'repo' ? `${s.repo}${s.ref ? ` @ ${s.ref}` : ''}` : 'Written here'}</span>
+								{#if !s.enabled}<span class="badge">Off</span>{/if}
+							</p>
+							{#if s.description}<p class="mt-0.5 line-clamp-2 text-xs text-muted-foreground">{s.description}</p>{/if}
+							<p class="mt-0.5 text-xs {s.synced?.error ? 'text-warning' : 'text-muted-foreground'}">
+								{#if s.source === 'repo'}
+									<span class="font-mono">{s.path}</span> ·
+									{#if s.synced?.error}{s.synced.error}{:else if s.synced}{s.synced.files} file{s.synced.files === 1 ? '' : 's'} from <span class="font-mono">{s.synced.sha?.slice(0, 7)}</span>, checked {ago(s.synced.at)}{:else}not fetched yet{/if} ·
+								{/if}
+								{s.accountIds.length ? s.accountIds.map(accountName).join(', ') : 'Every Claude account'}
+							</p>
+						</div>
+						{#if admin}
+							<div class="ml-auto flex items-center gap-2">
+								{#if s.source === 'repo'}<button class="btn btn-ghost btn-icon btn-sm" title="Fetch it again now" disabled={syncing === s.id} onclick={() => syncSkill(s)}>{#if syncing === s.id}<LoaderCircle class="animate-spin" />{:else}<RefreshCw />{/if}</button>{/if}
+								<Switch checked={s.enabled} label="On" onchange={(v) => setSkillEnabled(s, v)} />
+								<button class="btn btn-ghost btn-icon btn-sm" title="Edit" onclick={() => openSkill(s)}><Pencil /></button>
+								<button class="btn btn-ghost btn-icon btn-sm hover:text-danger" title="Remove" onclick={() => removeSkill(s)}><Trash2 /></button>
+							</div>
+						{/if}
+					</div>
+				{:else}
+					<EmptyState icon={Wand} title="No skills yet" body={admin ? 'Add one from a repo (e.g. .claude/skills/appsec-pr-review on the default branch), or write one here.' : 'An admin can add them here.'}>
+						{#snippet action()}{#if admin}<button class="btn btn-secondary btn-sm" onclick={() => openSkill(null)}><Plus />Add a skill</button>{/if}{/snippet}
+					</EmptyState>
+				{/each}
+			</div>
+			<p class="mt-2 text-xs text-muted-foreground">Installed into each Claude account's skills when one of its sessions starts (repo skills are fetched first, if their branch moved). A skill the account already has under the same name, made by hand, is left as it is.</p>
 		</section>
 
 		<section>
@@ -321,5 +428,81 @@
 	{#snippet footer()}
 		<button class="btn btn-ghost" onclick={() => (open = false)}>Cancel</button>
 		<button class="btn btn-primary" form="mcp-form" disabled={busy}>{#if busy}<LoaderCircle class="animate-spin" />{/if}{editing ? 'Save' : f.kind === 'notion' ? 'Connect Notion' : 'Add server'}</button>
+	{/snippet}
+</Dialog>
+
+<Dialog bind:open={skillOpen} title={editingSkill ? `Edit /${editingSkill.name}` : 'Add a skill'} width="max-w-2xl">
+	<form id="skill-form" class="space-y-3" onsubmit={saveSkill}>
+		<div class="flex rounded-lg border border-border bg-background p-0.5 text-xs">
+			{#each [{ value: 'repo', label: 'From a repo' }, { value: 'here', label: 'Write it here' }] as const as o (o.value)}
+				<button type="button" class="flex-1 rounded-md px-2.5 py-1 {sk.source === o.value ? 'bg-accent font-medium text-foreground' : 'text-muted-foreground'}" onclick={() => (sk.source = o.value)}>{o.label}</button>
+			{/each}
+		</div>
+		<div class="grid gap-3 sm:grid-cols-2">
+			<div>
+				<label class="label" for="sk-name">Command</label>
+				<div class="relative">
+					<span class="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 font-mono text-[0.8125rem] text-muted-foreground">/</span>
+					<input id="sk-name" class="input pl-6 font-mono text-[0.8125rem]" placeholder="appsec-pr-review" bind:value={sk.name} required autocomplete="off" spellcheck="false" />
+				</div>
+			</div>
+			<div>
+				<label class="label" for="sk-desc">Description <span class="font-normal text-muted-foreground/70">{sk.source === 'here' ? '(or in the front matter)' : '(optional)'}</span></label>
+				<input id="sk-desc" class="input" placeholder="Security review of a pull request" bind:value={sk.description} />
+			</div>
+		</div>
+		{#if sk.source === 'repo'}
+			<div class="grid gap-3 sm:grid-cols-2">
+				<div>
+					<label class="label" for="sk-repo">Repository</label>
+					<input id="sk-repo" class="input font-mono text-[0.8125rem]" placeholder="Ironclad/ironclad" bind:value={sk.repo} required autocomplete="off" spellcheck="false" />
+				</div>
+				<div>
+					<label class="label" for="sk-ref">Branch <span class="font-normal text-muted-foreground/70">(empty: the default branch)</span></label>
+					<input id="sk-ref" class="input font-mono text-[0.8125rem]" placeholder="main" bind:value={sk.ref} autocomplete="off" spellcheck="false" />
+				</div>
+			</div>
+			<div>
+				<label class="label" for="sk-path">Skill folder in the repo</label>
+				<input id="sk-path" class="input font-mono text-[0.8125rem]" placeholder={`.claude/skills/${sk.name || 'appsec-pr-review'}`} bind:value={sk.path} autocomplete="off" spellcheck="false" />
+				<p class="mt-1 text-xs text-muted-foreground">The folder with its SKILL.md (everything in it comes too), or one .md file. Empty: <span class="font-mono">.claude/skills/&lt;command&gt;</span>.</p>
+			</div>
+			{#if data.githubAccounts.length}
+				<div>
+					<label class="label" for="sk-gh">Read it with</label>
+					<select id="sk-gh" class="input" bind:value={sk.githubAccountId}>
+						<option value="">No GitHub connection (a public repo)</option>
+						{#each data.githubAccounts as g (g.id)}<option value={g.id}>{g.label === g.login ? g.login : `${g.label} · ${g.login}`}</option>{/each}
+					</select>
+				</div>
+			{/if}
+		{:else}
+			<div>
+				<label class="label flex items-center justify-between" for="sk-body">
+					SKILL.md
+					<span class="font-normal text-primary"><input type="file" accept=".md,text/markdown" class="hidden" id="sk-file" onchange={readSkillFile} /><label for="sk-file" class="cursor-pointer hover:underline">Choose a file</label></span>
+				</label>
+				<textarea id="sk-body" class="input min-h-64 font-mono text-[0.75rem] leading-relaxed" bind:value={sk.body} required spellcheck="false"></textarea>
+				<p class="mt-1 text-xs text-muted-foreground">The front matter's name is set to the command. $ARGUMENTS is what follows the command, e.g. the PR number from Run a skill.</p>
+			</div>
+		{/if}
+		{#if data.accounts.length > 1}
+			<fieldset>
+				<legend class="label">For sessions on</legend>
+				<div class="space-y-1.5">
+					{#each data.accounts as a (a.id)}
+						<label class="flex items-center gap-2 text-[0.8125rem]">
+							<input type="checkbox" checked={sk.accountIds.includes(a.id)} onchange={(e) => (sk.accountIds = e.currentTarget.checked ? [...sk.accountIds, a.id] : sk.accountIds.filter((x) => x !== a.id))} />{a.name}
+						</label>
+					{/each}
+				</div>
+				<p class="mt-1 text-xs text-muted-foreground">{sk.accountIds.length ? 'Only these accounts’ sessions get it.' : 'None ticked: every Claude account’s sessions get it.'}</p>
+			</fieldset>
+		{/if}
+		{#if skillError}<p class="text-xs text-danger">{skillError}</p>{/if}
+	</form>
+	{#snippet footer()}
+		<button class="btn btn-ghost" onclick={() => (skillOpen = false)}>Cancel</button>
+		<button class="btn btn-primary" form="skill-form" disabled={skillBusy}>{#if skillBusy}<LoaderCircle class="animate-spin" />{/if}{editingSkill ? 'Save' : sk.source === 'repo' ? 'Fetch and add' : 'Add skill'}</button>
 	{/snippet}
 </Dialog>

@@ -15,6 +15,7 @@ import type {
 	GithubAccount,
 	LinearRef,
 	LinearRule,
+	LibrarySkill,
 	LinearRun,
 	McpSecrets,
 	McpServer,
@@ -230,6 +231,24 @@ function migrate(h: DatabaseSync) {
 			role_name TEXT NOT NULL,
 			region TEXT NOT NULL,
 			created_at TEXT NOT NULL
+		);
+
+		CREATE TABLE IF NOT EXISTS library_skills (
+			id TEXT PRIMARY KEY,
+			name TEXT NOT NULL UNIQUE,
+			description TEXT NOT NULL DEFAULT '',
+			source TEXT NOT NULL,
+			body TEXT,
+			repo TEXT,
+			ref TEXT,
+			path TEXT,
+			github_account_id TEXT,
+			accounts TEXT NOT NULL DEFAULT '[]',
+			enabled INTEGER NOT NULL DEFAULT 1,
+			synced TEXT,
+			files TEXT,
+			created_at TEXT NOT NULL,
+			updated_at TEXT NOT NULL
 		);
 
 		CREATE TABLE IF NOT EXISTS notion_connections (
@@ -1196,4 +1215,70 @@ export function setNotionRenewError(userId: string, error: string | null) {
 
 export function deleteNotionConnection(userId: string): boolean {
 	return db().prepare('DELETE FROM notion_connections WHERE user_id = ?').run(userId).changes > 0;
+}
+
+// ── Library: skills ────────────────────────────────────────────────────
+
+function toLibrarySkill(r: Row): LibrarySkill {
+	return {
+		id: r.id as string,
+		name: r.name as string,
+		description: r.description as string,
+		source: r.source as LibrarySkill['source'],
+		body: (r.body as string) ?? null,
+		repo: (r.repo as string) ?? null,
+		ref: (r.ref as string) ?? null,
+		path: (r.path as string) ?? null,
+		githubAccountId: (r.github_account_id as string) ?? null,
+		accountIds: JSON.parse((r.accounts as string) || '[]'),
+		enabled: !!r.enabled,
+		synced: r.synced ? JSON.parse(r.synced as string) : null,
+		createdAt: r.created_at as string,
+		updatedAt: r.updated_at as string
+	};
+}
+
+export function listLibrarySkills(): LibrarySkill[] {
+	return (db().prepare('SELECT * FROM library_skills ORDER BY name').all() as Row[]).map(toLibrarySkill);
+}
+
+export function getLibrarySkill(id: string): LibrarySkill | undefined {
+	const r = db().prepare('SELECT * FROM library_skills WHERE id = ?').get(id) as Row | undefined;
+	return r ? toLibrarySkill(r) : undefined;
+}
+
+export type LibrarySkillInput = Pick<LibrarySkill, 'name' | 'description' | 'source' | 'body' | 'repo' | 'ref' | 'path' | 'githubAccountId' | 'accountIds' | 'enabled'>;
+
+export function createLibrarySkill(input: LibrarySkillInput): LibrarySkill {
+	const id = randomUUID();
+	const t = now();
+	db()
+		.prepare('INSERT INTO library_skills (id, name, description, source, body, repo, ref, path, github_account_id, accounts, enabled, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+		.run(id, input.name, input.description, input.source, input.body, input.repo, input.ref, input.path, input.githubAccountId, JSON.stringify(input.accountIds), input.enabled ? 1 : 0, t, t);
+	return getLibrarySkill(id)!;
+}
+
+export function updateLibrarySkill(id: string, input: LibrarySkillInput) {
+	db()
+		.prepare('UPDATE library_skills SET name = ?, description = ?, source = ?, body = ?, repo = ?, ref = ?, path = ?, github_account_id = ?, accounts = ?, enabled = ?, updated_at = ? WHERE id = ?')
+		.run(input.name, input.description, input.source, input.body, input.repo, input.ref, input.path, input.githubAccountId, JSON.stringify(input.accountIds), input.enabled ? 1 : 0, now(), id);
+}
+
+export function deleteLibrarySkill(id: string): boolean {
+	return db().prepare('DELETE FROM library_skills WHERE id = ?').run(id).changes > 0;
+}
+
+/** A repo skill's fetched files (path → base64), and how the fetch went. */
+export function setLibrarySkillFiles(id: string, synced: NonNullable<LibrarySkill['synced']>, files?: Record<string, string>) {
+	db().prepare('UPDATE library_skills SET synced = ? WHERE id = ?').run(JSON.stringify(synced), id);
+	if (files) db().prepare('UPDATE library_skills SET files = ? WHERE id = ?').run(JSON.stringify(files), id);
+}
+
+export function setLibrarySkillDescription(id: string, description: string) {
+	db().prepare('UPDATE library_skills SET description = ? WHERE id = ?').run(description, id);
+}
+
+export function getLibrarySkillFiles(id: string): Record<string, string> {
+	const r = db().prepare('SELECT files FROM library_skills WHERE id = ?').get(id) as { files: string | null } | undefined;
+	return r?.files ? (JSON.parse(r.files) as Record<string, string>) : {};
 }

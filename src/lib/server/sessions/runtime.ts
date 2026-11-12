@@ -39,6 +39,7 @@ import { accountRel, backing, conversationsDir, ensureDirs, metaDir, mountSpec, 
 import { AWS_ENV, writeAwsCredentials } from './aws.ts';
 import { GIT_ENV, writeGithubCredentials } from './github.ts';
 import { writeSessionMcp } from './mcp.ts';
+import { installLibrarySkills } from '../skills-library.ts';
 import { hasConversations } from './transcripts.ts';
 import type { Session, Settings } from '#lib/types.ts';
 
@@ -119,6 +120,12 @@ export function systemPromptFor(s: Pick<Session, 'githubAccountId'>): string | n
 	const github = s.githubAccountId ? getGithubAccount(s.githubAccountId) : undefined;
 	const parts = [replyStyle.enabled ? replyStyle.text : null, github ? accessNote(githubAccess(github)) : null].filter(Boolean);
 	return parts.length ? parts.join('\n\n') : null;
+}
+
+/** The Library's skills for the account, before Claude starts; a skill that can't be fetched doesn't stop the session. */
+async function installSkills(accountId: string) {
+	const problems = await installLibrarySkills(accountId).catch((err: unknown) => [String(err instanceof Error ? err.message : err)]);
+	for (const p of problems) console.error(`[orbital] Library skill ${p}`);
 }
 
 function writeLaunch(s: Session, agent: AgentSetup, launch: LaunchMode) {
@@ -202,6 +209,7 @@ export async function startSession(id: string, launch?: LaunchMode): Promise<Ses
 		await writeAwsCredentials(s);
 		const agent = agentSetup(s.accountId); // fails early if the account is gone
 		await ensureImage(agent.image);
+		if (agent.agent === 'claude') await installSkills(s.accountId);
 		writeLaunch(s, agent, launch ?? defaultLaunch(s));
 		await removeOwned(s.containerName);
 		// Sessions from before the rename (claude-<repo>, ccm-…) take an orbital- name at their next start.
@@ -259,6 +267,7 @@ export async function relaunchAgent(id: string, launch?: LaunchMode): Promise<Se
 	if (info?.Config.Labels?.[LABELS.account] !== session.accountId) {
 		throw new Conflict('The session changed accounts since it started. Stop and start it to switch.');
 	}
+	if (agent.agent === 'claude') await installSkills(session.accountId);
 	writeLaunch(session, agent, launch ?? defaultLaunch(session));
 	writeGithubCredentials(session);
 	await writeAwsCredentials(session);

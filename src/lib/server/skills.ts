@@ -7,6 +7,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { abs, accountRel } from './sessions/storage.ts';
 import type { SkillOption } from '#lib/types.ts';
+import { librarySkillsFor } from './skills-library.ts';
 
 export const BUILT_IN_SKILLS: SkillOption[] = [
 	{ command: '/code-review', description: 'Review a pull request (or the branch’s changes) for bugs', source: 'built-in', takesPr: true },
@@ -53,7 +54,9 @@ export function accountSkills(accountId: string): SkillOption[] {
 }
 
 export function skillOptions(accountId: string | null): SkillOption[] {
-	const own = accountId ? accountSkills(accountId) : [];
-	const seen = new Set(own.map((s) => s.command));
-	return [...BUILT_IN_SKILLS.filter((s) => !seen.has(s.command)), ...own];
+	// The Library's, then the account's own (installed copies of the Library's are those).
+	const library: SkillOption[] = accountId ? librarySkillsFor(accountId).map((s) => ({ command: `/${s.name}`, description: s.description, source: 'library' })) : [];
+	const own = accountId ? accountSkills(accountId).filter((s) => !library.some((l) => l.command === s.command)) : [];
+	const seen = new Set([...library, ...own].map((s) => s.command));
+	return [...BUILT_IN_SKILLS.filter((s) => !seen.has(s.command)), ...library, ...own];
 }
