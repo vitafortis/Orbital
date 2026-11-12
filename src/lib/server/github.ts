@@ -397,12 +397,23 @@ export async function allRepos(how: { owner?: string; search?: string; refresh?:
 export async function listBranches(account: GithubAccount | null, fullName: string): Promise<string[]> {
 	if (!FULL_NAME.test(fullName)) throw new BadRequest('Invalid repository');
 	const branches: string[] = [];
-	for (let page = 1; page <= 5; page++) {
+	for (let page = 1; page <= 10; page++) {
 		const { data } = await gh<{ name: string }[]>(tokenOf(account), `/repos/${fullName}/branches?per_page=100&page=${page}`);
 		branches.push(...data.map((b) => b.name));
 		if (data.length < 100) break;
 	}
 	return branches;
+}
+
+/** Branches starting with what's typed, past the listed ones (repos with a thousand or more). */
+export async function searchBranches(account: GithubAccount | null, fullName: string, prefix: string): Promise<string[]> {
+	if (!FULL_NAME.test(fullName)) throw new BadRequest('Invalid repository');
+	const p = prefix.trim();
+	if (!p || /[\s~^:?*[\\]/.test(p)) return [];
+	const res = await ghFetch(tokenOf(account), `/repos/${fullName}/git/matching-refs/heads/${p.split('/').map(encodeURIComponent).join('/')}`);
+	if (!res.ok) return [];
+	const refs = (await res.json()) as { ref: string }[];
+	return refs.slice(0, 50).map((r) => r.ref.replace(/^refs\/heads\//, ''));
 }
 
 type GhPull = {
@@ -431,8 +442,28 @@ const toPull = (p: GhPull): GithubPull => ({
 /** Open pull requests, most recently updated first, for "check out a pull request". */
 export async function listPulls(account: GithubAccount | null, fullName: string): Promise<GithubPull[]> {
 	if (!FULL_NAME.test(fullName)) throw new BadRequest('Invalid repository');
-	const { data } = await gh<GhPull[]>(tokenOf(account), `/repos/${fullName}/pulls?state=open&sort=updated&direction=desc&per_page=50`);
+	const { data } = await gh<GhPull[]>(tokenOf(account), `/repos/${fullName}/pulls?state=open&sort=updated&direction=desc&per_page=100`);
 	return data.map(toPull);
+}
+
+type GhIssue = { number: number; title: string; user: { login: string } | null; draft?: boolean; updated_at: string; html_url: string };
+
+/**
+ * Pull requests past the list of open ones: one by number ("1234" or "#1234", in any state), or
+ * open ones whose title or body has every word typed, through GitHub's search.
+ */
+export async function searchPulls(account: GithubAccount | null, fullName: string, query: string): Promise<GithubPull[]> {
+	if (!FULL_NAME.test(fullName)) throw new BadRequest('Invalid repository');
+	const q = query.trim();
+	const n = /^#?(\d{1,9})$/.exec(q)?.[1];
+	if (n) {
+		const res = await ghFetch(tokenOf(account), `/repos/${fullName}/pulls/${n}`);
+		return res.ok ? [toPull((await res.json()) as GhPull)] : [];
+	}
+	const words = q.replace(/[^\w.\-/ ]+/g, ' ').trim();
+	if (!words) return [];
+	const { data } = await gh<{ items: GhIssue[] }>(tokenOf(account), `/search/issues?q=${encodeURIComponent(`${words} repo:${fullName} is:pr is:open`)}&sort=updated&per_page=20`);
+	return data.items.map((i) => ({ number: i.number, title: i.title, author: i.user?.login ?? null, draft: !!i.draft, headRef: '', headRepo: null, updatedAt: i.updated_at, url: i.html_url }));
 }
 
 export async function getPull(account: GithubAccount | null, fullName: string, number: number): Promise<GithubPull> {

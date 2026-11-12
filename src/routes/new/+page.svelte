@@ -6,6 +6,7 @@
 	import AgentBadge from '#lib/components/AgentBadge.svelte';
 	import AwsProfilePicker from '#lib/components/AwsProfilePicker.svelte';
 	import BrandIcon from '#lib/components/BrandIcon.svelte';
+	import Combobox, { type ComboOption } from '#lib/components/Combobox.svelte';
 	import PageHeader from '#lib/components/PageHeader.svelte';
 	import ModelPicker from '#lib/components/ModelPicker.svelte';
 	import { modelGroups, modelLabel } from '#lib/models.ts';
@@ -267,6 +268,64 @@
 			() => {}
 		);
 		return () => ctrl.abort();
+	});
+
+	// The pull request and branch boxes: typed, with suggestions, for repos with many of either.
+	let prText = $state('');
+	let prError = $state('');
+	const prOption = (p: GithubPull): ComboOption => ({
+		value: String(p.number),
+		label: `#${p.number} ${p.title}`,
+		detail: [p.author, p.headRef, p.draft ? 'draft' : ''].filter(Boolean).join(' · '),
+		meta: ago(p.updatedAt)
+	});
+	const prOptions = $derived(pulls.map(prOption));
+	const branchOptions = $derived(branches.map((b) => ({ value: b, label: b })));
+	const repoQuery = () => new URLSearchParams({ repo: parsed?.fullName ?? '', ...(github ? { account: github.id } : {}) });
+	async function searchPrs(q: string, signal: AbortSignal): Promise<ComboOption[]> {
+		const found = await api.get<GithubPull[]>(`/api/github/pulls?${repoQuery()}&search=${encodeURIComponent(q)}`, signal);
+		return found.map(prOption);
+	}
+	async function searchBranchNames(q: string, signal: AbortSignal): Promise<ComboOption[]> {
+		const found = await api.get<string[]>(`/api/github/branches?${repoQuery()}&search=${encodeURIComponent(q)}`, signal);
+		return found.map((b) => ({ value: b, label: b }));
+	}
+	function pickPr(o: ComboOption) {
+		checkoutPr = Number(o.value);
+		prText = o.label;
+		prError = '';
+	}
+	function clearPr() {
+		checkoutPr = null;
+		prText = '';
+		prError = '';
+	}
+	// A number typed and left without picking: look it up, so "1234" then Tab works.
+	$effect(() => {
+		const n = /^#?(\d{1,9})$/.exec(prText.trim())?.[1];
+		if (!n || checkoutPr || !parsed?.fullName) return;
+		// After a pause, so "1" on the way to "1234" isn't taken for #1.
+		const ctrl = new AbortController();
+		const t = setTimeout(() => {
+			const known = pulls.find((p) => p.number === Number(n));
+			if (known) return pickPr(prOption(known));
+			api.get<GithubPull[]>(`/api/github/pulls?${repoQuery()}&search=${n}`, ctrl.signal).then(
+				(r) => (r[0] ? pickPr(prOption(r[0])) : (prError = `No pull request #${n} in ${parsed?.fullName}.`)),
+				() => {}
+			);
+		}, 600);
+		return () => {
+			clearTimeout(t);
+			ctrl.abort();
+		};
+	});
+	// Another repo: start over; a pull request asked for in the address (?pr=) shows as its number.
+	$effect(() => {
+		void parsed?.fullName;
+		untrack(() => {
+			prText = checkoutPr ? `#${checkoutPr}` : '';
+			prError = '';
+		});
 	});
 
 	function suggestBranch() {
@@ -550,31 +609,41 @@
 						</div>
 					{/if}
 				</div>
-				{#if pulls.length}
+				{#if parsed?.fullName}
 					<div>
-						<label class="label" for="pr">Check out a pull request <span class="font-normal text-muted-foreground/70">(optional)</span></label>
-						<div class="relative">
-							<GitPullRequest class="pointer-events-none absolute top-2.5 left-3 size-4 text-muted-foreground" />
-							<select id="pr" class="input pl-9" bind:value={checkoutPr}>
-								<option value={null}>No pull request</option>
-								{#each pulls as p (p.number)}
-									<option value={p.number}>#{p.number} {p.title}{p.author ? ` · ${p.author}` : ''}{p.draft ? ' · draft' : ''} · {ago(p.updatedAt)}</option>
-								{/each}
-							</select>
-						</div>
+						<label class="label flex items-center justify-between" for="pr">
+							<span>Check out a pull request <span class="font-normal text-muted-foreground/70">(optional)</span></span>
+							{#if checkoutPr || prText}<button type="button" class="text-primary hover:underline" onclick={clearPr}>No pull request</button>{/if}
+						</label>
+						<Combobox
+							id="pr"
+							bind:value={prText}
+							options={prOptions}
+							placeholder={pulls.length ? `A number, or words from the title, author or branch · ${pulls.length}${pulls.length === 100 ? '+' : ''} open` : 'A number, or words from the title'}
+							icon={GitPullRequest}
+							search={searchPrs}
+							onpick={(o) => pickPr(o)}
+							oninput={() => {
+								checkoutPr = null;
+								prError = '';
+							}}
+						/>
+						{#if prError}<p class="mt-1.5 text-xs text-danger">{prError}</p>{/if}
 					</div>
 				{/if}
 				<div class="grid gap-3 sm:grid-cols-2">
 					<div class={checkoutPr ? 'pointer-events-none opacity-50' : ''}>
 						<label class="label" for="base">Start from branch {#if checkoutPr}<span class="font-normal">(the PR's)</span>{/if}</label>
-						{#if branches.length}
-							<select id="base" class="input font-mono text-[0.8125rem]" bind:value={baseBranch}>
-								<option value="">Default branch</option>
-								{#each branches as b (b)}<option value={b}>{b}</option>{/each}
-							</select>
-						{:else}
-							<input id="base" class="input font-mono text-[0.8125rem]" placeholder="Default branch" bind:value={baseBranch} />
-						{/if}
+						<Combobox
+							id="base"
+							bind:value={baseBranch}
+							options={branchOptions}
+							placeholder={branches.length ? `Default branch · type to find one of ${branches.length}${branches.length >= 1000 ? '+' : ''}` : 'Default branch'}
+							icon={GitBranch}
+							mono
+							search={branches.length >= 1000 ? searchBranchNames : undefined}
+							onpick={(o) => (baseBranch = o.value)}
+						/>
 					</div>
 					<div>
 						<label class="label flex items-center justify-between" for="nb">
