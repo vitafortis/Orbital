@@ -127,7 +127,7 @@ function writeLaunch(s: Session, agent: AgentSetup, launch: LaunchMode) {
 		model: s.model,
 		permissionMode: s.permissionMode,
 		remoteControl: s.remoteControl && supportsRemoteControl(agent.account),
-		mcpConfig: agent.agent === 'claude' ? writeSessionMcp(s.id, s.accountId) : null,
+		mcpConfig: agent.agent === 'claude' ? writeSessionMcp(s.id, s.accountId, s.ownerId) : null,
 		appendSystemPrompt: agent.agent === 'claude' ? systemPromptFor(s) : null
 	};
 	const args = agentArgs(agent.agent, opts, launch);

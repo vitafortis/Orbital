@@ -100,6 +100,32 @@
 		}
 	}
 
+	// ── your Notion: sessions you start reach Notion as you ──
+	let notionBusy = $state(false);
+	async function connectNotion() {
+		notionBusy = true;
+		try {
+			const r = await api.post<{ url: string }>('/api/notion/connect');
+			location.href = r.url;
+		} catch (err) {
+			toast('error', "Couldn't start the Notion sign-in", errorMessage(err));
+			notionBusy = false;
+		}
+	}
+	async function disconnectNotion() {
+		const ok = await confirmAction({ title: 'Disconnect your Notion?', body: 'Sessions you started lose it at once, and Orbital asks Notion to revoke the sign-in.', confirmLabel: 'Disconnect', danger: true });
+		if (!ok) return;
+		await api.del('/api/notion/connect').catch((err) => toast('error', "Couldn't disconnect", errorMessage(err)));
+		await invalidateAll();
+	}
+	// Back from Notion's sign-in.
+	$effect(() => {
+		const q = new URLSearchParams(location.search);
+		if (q.get('notion') === 'connected') toast('success', 'Connected your Notion', 'Sessions you start get it when Claude next starts.');
+		else if (q.get('notion_error')) toast('error', "Couldn't connect your Notion", q.get('notion_error') ?? '');
+		if (q.has('notion') || q.has('notion_error')) history.replaceState(history.state, '', location.pathname + location.hash);
+	});
+
 	// ── reply style ──
 	let style = $state(untrack(() => ({ ...data.replyStyle })));
 	let styleSaving = $state(false);
@@ -133,6 +159,31 @@
 	</PageHeader>
 
 	<div class="space-y-8 px-4 pb-10 sm:px-8">
+		<section id="notion">
+			<div class="mb-3">
+				<h2 class="flex items-center gap-2 text-[0.9375rem] font-semibold tracking-tight"><BrandIcon brand="notion" />Your Notion</h2>
+				<p class="max-w-2xl text-xs text-muted-foreground">
+					Sign in to Notion, and Claude in the sessions you start reaches it as you: everything you can see, with edits under your name. Only your sessions get it; it's yours, not the team's (for that, an admin adds Notion below as an integration).
+				</p>
+			</div>
+			<div class="card flex flex-wrap items-center gap-3 px-4 py-3">
+				{#if data.myNotion}
+					<div class="min-w-0 flex-1 basis-60 text-[0.8125rem]">
+						<p class="font-medium">Connected</p>
+						<p class="text-xs {data.myNotion.renewError ? 'text-warning' : 'text-muted-foreground'}">
+							{data.myNotion.renewError ?? `Since ${new Date(data.myNotion.createdAt).toLocaleDateString()}. Renews itself; sessions you start get it as notion.`}
+						</p>
+					</div>
+					{#if data.myNotion.renewError}<button class="btn btn-secondary btn-sm" disabled={notionBusy} onclick={connectNotion}>Connect again</button>{/if}
+					<button class="btn btn-ghost btn-sm hover:text-danger" onclick={disconnectNotion}>Disconnect</button>
+				{:else}
+					<p class="min-w-0 flex-1 basis-60 text-xs text-muted-foreground">Not connected. You'll sign in on Notion's page and choose what to allow, then come back here.</p>
+					<button class="btn btn-primary btn-sm" disabled={notionBusy} onclick={connectNotion}>{#if notionBusy}<LoaderCircle class="animate-spin" />{:else}<BrandIcon brand="notion" class="size-4" />{/if}Connect my Notion</button>
+				{/if}
+			</div>
+			<p class="mt-2 text-xs text-muted-foreground">Applies when Claude next starts in your sessions (start one, or Session → Restart Claude). Sessions started before this release, or by automations, have no owner and don't get it.</p>
+		</section>
+
 		<section>
 			<div class="mb-3 flex flex-wrap items-end justify-between gap-3">
 				<div>

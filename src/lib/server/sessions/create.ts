@@ -8,11 +8,11 @@ import type { LinearRef, Session, SessionInput } from '#lib/types.ts';
 
 /**
  * Saves a new session and starts it in the background (the first start may pull the
- * image). Used by the New session page and by Linear rules.
+ * image). Used by the New session page (with who started it) and by Linear rules.
  */
 export async function launchNewSession(
 	input: SessionInput & { repoDir: string },
-	extra: { linear?: LinearRef } = {}
+	extra: { linear?: LinearRef; ownerId?: string | null } = {}
 ): Promise<Session> {
 	const { prompt, ...rest } = input;
 	const account = getAccount(rest.accountId);
@@ -26,7 +26,7 @@ export async function launchNewSession(
 		} catch {}
 	}
 	const containerName = await allocateContainerName(rest.repoDir);
-	const session = createSession(randomUUID(), { ...rest, containerName, linear: extra.linear ?? null });
+	const session = createSession(randomUUID(), { ...rest, containerName, linear: extra.linear ?? null, ownerId: extra.ownerId ?? null });
 	void startSession(session.id, { mode: 'new', prompt })
 		.catch(() => {})
 		.finally(pokeLive);

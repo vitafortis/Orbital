@@ -196,6 +196,8 @@ export interface LinearRef {
 export interface Session {
 	id: string;
 	name: string;
+	/** The Orbital user who started it (their personal connections, e.g. Notion, go with it); null for automations and older sessions. */
+	ownerId: string | null;
 	/** Docker container name: orbital-<repo>, with -2, -3… for more sessions on one repo. */
 	containerName: string;
 	kind: SessionKind;
