@@ -6,10 +6,13 @@ rs=$'\x1e'
 tmux display-message -p -t main '#{pane_current_command}' 2>/dev/null
 printf '%s\n' "$rs"
 tmux capture-pane -p -J -t main -S -60 2>/dev/null
-if [ "${1:-}" = "--git" ] && [ -e "${ORB_REPO_DIR:-/nonexistent}/.git" ]; then
+# Not while orb-launch is cloning (a big repo's checkout takes a while), and never taking git's
+# index lock: a status that refreshes the index locks it, and a clone or commit running at that
+# moment fails with "index.lock: File exists".
+if [ "${1:-}" = "--git" ] && [ -e "${ORB_REPO_DIR:-/nonexistent}/.git" ] && [ ! -e /session/.orb/cloning ]; then
 	printf '%s\n' "$rs"
-	git -C "$ORB_REPO_DIR" status --porcelain=v2 --branch 2>/dev/null
+	git --no-optional-locks -C "$ORB_REPO_DIR" status --porcelain=v2 --branch 2>/dev/null
 	printf '%s\n' "$rs"
-	git -C "$ORB_REPO_DIR" diff --shortstat HEAD 2>/dev/null
+	git --no-optional-locks -C "$ORB_REPO_DIR" diff --shortstat HEAD 2>/dev/null
 fi
 exit 0

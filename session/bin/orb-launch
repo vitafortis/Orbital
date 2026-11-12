@@ -6,6 +6,7 @@
 set -u
 
 repo="${ORB_REPO_DIR:?}"
+cloning=/session/.orb/cloning
 agent="${ORB_AGENT:-claude}"
 bold=$'\e[1m'; dim=$'\e[2m'; red=$'\e[31m'; reset=$'\e[0m'
 
@@ -28,13 +29,27 @@ if [ -z "${ORB_REPO_URL:-}" ] && [ ! -e "$repo/.git" ]; then
 	echo "${dim}No repository: starting in an empty folder (${reset}${bold}${repo}${reset}${dim}, git initialised).${reset}"
 	echo "${dim}To put it on GitHub: ${reset}${bold}gh repo create <name> --private --source . --push${reset}"
 	echo
-elif [ ! -e "$repo/.git" ]; then
+elif [ ! -e "$repo/.git" ] || [ -e "$cloning" ]; then
+	# The repo folder is a mount, so the clone goes straight into it; this marker says it isn't
+	# finished (orb-status leaves git alone meanwhile), so an interrupted clone starts over.
+	if [ -e "$cloning" ]; then
+		echo "${dim}The last clone didn't finish: starting it again.${reset}"
+		find "$repo" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+	fi
+	touch "$cloning"
 	echo "${dim}Cloning ${reset}${bold}${ORB_REPO_URL}${reset}${dim}${ORB_BASE_BRANCH:+ (branch $ORB_BASE_BRANCH)}…${reset}"
 	args=(clone --progress)
 	[ -n "${ORB_BASE_BRANCH:-}" ] && args+=(--branch "$ORB_BASE_BRANCH")
 	if ! git "${args[@]}" "$ORB_REPO_URL" "$repo"; then
-		echo "${red}Clone failed.${reset} Check the URL and the GitHub account's access, then use Restart."
-		fallback "clone failed"
+		# Everything came down but writing the files out failed (a lock, say): only that part again.
+		if git -C "$repo" rev-parse -q --verify HEAD >/dev/null 2>&1; then
+			echo "${dim}The download finished but the checkout didn't: trying the checkout again…${reset}"
+			rm -f "$repo/.git/index.lock"
+		fi
+		if ! git -C "$repo" rev-parse -q --verify HEAD >/dev/null 2>&1 || ! git -C "$repo" checkout -f -q HEAD; then
+			echo "${red}Clone failed${reset} (git's reason is above). Check the URL and the GitHub account's access, then use Restart."
+			fallback "clone failed"
+		fi
 	fi
 	# A pull request from a fork: its head is only reachable as pull/<n>/head. (A PR from
 	# this repo was cloned straight onto its branch, so pushes update the PR.)
@@ -44,6 +59,7 @@ elif [ ! -e "$repo/.git" ]; then
 	if [ -n "${ORB_NEW_BRANCH:-}" ]; then
 		git -C "$repo" switch -c "$ORB_NEW_BRANCH" || git -C "$repo" switch "$ORB_NEW_BRANCH"
 	fi
+	rm -f "$cloning"
 	echo
 fi
 
