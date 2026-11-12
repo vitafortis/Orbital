@@ -16,6 +16,8 @@ import { openTodos } from './todos.ts';
 import { renewAwsCredentials, sessionAws } from './aws.ts';
 import { sweepLogins } from '../accounts.ts';
 import { renewGithubTokens } from '../github.ts';
+import { renewNotionTokens } from '../notion-oauth.ts';
+import { refreshSessionNotion } from './notion.ts';
 import type { GitState, Session, SessionLive } from '#lib/types.ts';
 
 const FAST_MS = 2500;
@@ -60,6 +62,7 @@ async function pollOnce() {
 	if (tick % 30 === 0) await sweepLogins().catch(() => {});
 	await renewAwsCredentials().catch(() => {});
 	await renewGithubTokens().catch(() => {});
+	for (const userId of await renewNotionTokens().catch(() => [] as string[])) refreshSessionNotion(userId);
 	const withGit = tick++ % GIT_EVERY === 0;
 	const sessions = listSessions();
 	const results = await Promise.all(

@@ -206,6 +206,7 @@ function migrate(h: DatabaseSync) {
 	const ruleCols = new Set((h.prepare(`SELECT name FROM pragma_table_info('linear_rules')`).all() as { name: string }[]).map((c) => c.name));
 	if (!ruleCols.has('profile_id')) h.exec('ALTER TABLE linear_rules ADD COLUMN profile_id TEXT');
 	add('aws_profiles', `TEXT NOT NULL DEFAULT '[]'`);
+	add('owner_id', 'TEXT');
 	const profileCols = new Set((h.prepare(`SELECT name FROM pragma_table_info('profiles')`).all() as { name: string }[]).map((c) => c.name));
 	if (!profileCols.has('aws_profiles')) h.exec(`ALTER TABLE profiles ADD COLUMN aws_profiles TEXT NOT NULL DEFAULT '[]'`);
 	h.exec(`
@@ -228,6 +229,14 @@ function migrate(h: DatabaseSync) {
 			account_name TEXT,
 			role_name TEXT NOT NULL,
 			region TEXT NOT NULL,
+			created_at TEXT NOT NULL
+		);
+
+		CREATE TABLE IF NOT EXISTS notion_connections (
+			user_id TEXT PRIMARY KEY,
+			secret TEXT NOT NULL,
+			expires_at TEXT,
+			renew_error TEXT,
 			created_at TEXT NOT NULL
 		);
 
@@ -639,6 +648,7 @@ function toSession(r: Row): Session {
 	return {
 		id: r.id as string,
 		name: r.name as string,
+		ownerId: (r.owner_id as string) ?? null,
 		repoUrl: r.repo_url as string,
 		repoFullName: (r.repo_full_name as string) ?? null,
 		repoDir: r.repo_dir as string,
@@ -692,14 +702,14 @@ export function containerNamesInUse(): Set<string> {
 
 export function createSession(
 	id: string,
-	input: Omit<SessionInput, 'prompt'> & { repoDir: string; containerName: string; linear?: LinearRef | null }
+	input: Omit<SessionInput, 'prompt'> & { repoDir: string; containerName: string; linear?: LinearRef | null; ownerId?: string | null }
 ): Session {
 	db()
 		.prepare(
 			`INSERT INTO sessions (id, name, repo_url, repo_full_name, repo_dir, base_branch, new_branch, claude_account_id,
 				github_account_id, model, permission_mode, remote_control, status, created_at,
-				container_name, kind, skill, checkout_pr, linear_issue_id, linear_identifier, linear_url, aws_profiles)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'stopped', ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+				container_name, kind, skill, checkout_pr, linear_issue_id, linear_identifier, linear_url, aws_profiles, owner_id)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'stopped', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 		)
 		.run(
 			id,
@@ -722,7 +732,8 @@ export function createSession(
 			input.linear?.issueId ?? null,
 			input.linear?.identifier ?? null,
 			input.linear?.url ?? null,
-			JSON.stringify(input.awsProfileIds ?? [])
+			JSON.stringify(input.awsProfileIds ?? []),
+			input.ownerId ?? null
 		);
 	return getSession(id)!;
 }
@@ -1148,4 +1159,41 @@ export function getReplyStyle(): ReplyStyle {
 
 export function setReplyStyle(style: ReplyStyle) {
 	setKv('replyStyle', { enabled: style.enabled, text: style.text.trim() === DEFAULT_REPLY_STYLE ? '' : style.text.trim() });
+}
+
+// ── personal connections: Notion ───────────────────────────────────────
+
+/** A person's Notion sign-in (Notion's hosted MCP server, through OAuth): sessions they start act as them. */
+export type NotionConnection = { userId: string; expiresAt: string | null; renewError: string | null; createdAt: string };
+type NotionSecret = { accessToken: string; refreshToken: string | null; clientId: string };
+
+export function getNotionConnection(userId: string): NotionConnection | undefined {
+	const r = db().prepare('SELECT user_id, expires_at, renew_error, created_at FROM notion_connections WHERE user_id = ?').get(userId) as Row | undefined;
+	return r ? { userId: r.user_id as string, expiresAt: (r.expires_at as string) ?? null, renewError: (r.renew_error as string) ?? null, createdAt: r.created_at as string } : undefined;
+}
+
+export function listNotionConnections(): NotionConnection[] {
+	return (db().prepare('SELECT user_id FROM notion_connections').all() as Row[]).map((r) => getNotionConnection(r.user_id as string)!);
+}
+
+export function getNotionSecret(userId: string): NotionSecret | undefined {
+	const r = db().prepare('SELECT secret FROM notion_connections WHERE user_id = ?').get(userId) as { secret: string } | undefined;
+	return r ? (JSON.parse(decrypt(r.secret, `notion:${userId}`)) as NotionSecret) : undefined;
+}
+
+export function saveNotionConnection(userId: string, secret: NotionSecret, expiresAt: string | null) {
+	db()
+		.prepare(
+			`INSERT INTO notion_connections (user_id, secret, expires_at, renew_error, created_at) VALUES (?, ?, ?, NULL, ?)
+			 ON CONFLICT(user_id) DO UPDATE SET secret = excluded.secret, expires_at = excluded.expires_at, renew_error = NULL`
+		)
+		.run(userId, encrypt(JSON.stringify(secret), `notion:${userId}`), expiresAt, now());
+}
+
+export function setNotionRenewError(userId: string, error: string | null) {
+	db().prepare('UPDATE notion_connections SET renew_error = ? WHERE user_id = ?').run(error, userId);
+}
+
+export function deleteNotionConnection(userId: string): boolean {
+	return db().prepare('DELETE FROM notion_connections WHERE user_id = ?').run(userId).changes > 0;
 }
