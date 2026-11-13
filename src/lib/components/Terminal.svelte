@@ -315,6 +315,17 @@
 			};
 			// Ctrl+Shift+Up and Down (or with Cmd) jump between turns.
 			term.attachCustomKeyEventHandler((e) => {
+				// Windows and Linux: Ctrl+V (and Ctrl+Shift+V) paste, as everywhere else, instead of
+				// going to the program as ^V. Left to the browser, it fires a paste: text goes to the
+				// terminal, files to onfiles. (On a Mac it's ⌘V, which xterm leaves alone already.)
+				if (e.ctrlKey && !e.altKey && !e.metaKey && e.key.toLowerCase() === 'v') return false;
+				// Ctrl+C with text selected in xterm (a Shift-drag) copies it; without, it interrupts.
+				if (e.type === 'keydown' && e.ctrlKey && !e.altKey && !e.metaKey && !e.shiftKey && e.key.toLowerCase() === 'c' && term.hasSelection()) {
+					e.preventDefault();
+					void copyText(term.getSelection(), 'Copied from the terminal');
+					term.clearSelection();
+					return false;
+				}
 				if (!turns || e.type !== 'keydown' || !e.shiftKey || !(e.ctrlKey || e.metaKey) || (e.key !== 'ArrowUp' && e.key !== 'ArrowDown')) return true;
 				e.preventDefault();
 				jump(e.key === 'ArrowUp' ? 'previous' : 'next');
