@@ -14,6 +14,7 @@
 		running = () => false,
 		tell,
 		compact = false,
+		flat = false,
 		onchange
 	}: {
 		items: TodoItem[];
@@ -22,6 +23,8 @@
 		/** Tick tells the session it's done. */
 		tell: boolean;
 		compact?: boolean;
+		/** Inside a card: items divided by lines instead of each in its own box. */
+		flat?: boolean;
 		onchange?: () => void;
 	} = $props();
 
@@ -34,10 +37,10 @@
 	const WHERE_ICON = { 'your-machine': Laptop, 'session-shell': SquareTerminal, browser: Globe, other: null };
 </script>
 
-<ul class="space-y-1.5">
+<ul class={flat ? 'divide-y divide-border' : 'space-y-1.5'}>
 	{#each items as t (t.id)}
 		{@const Icon = WHERE_ICON[t.where]}
-		<li class="flex items-start gap-2.5 rounded-lg {compact ? 'py-1' : 'border border-border bg-card px-3 py-2.5'} {t.doneAt ? 'opacity-60' : ''}">
+		<li class="flex items-start gap-2.5 {compact ? 'rounded-lg py-1' : flat ? 'py-3' : 'rounded-lg border border-border bg-card px-3 py-2.5'} {t.doneAt ? 'opacity-60' : ''}">
 			<button
 				type="button"
 				class="mt-0.5 grid size-4 shrink-0 place-items-center rounded-full border transition-colors {t.doneAt ? 'border-success bg-success text-white' : 'border-muted-foreground/50 hover:border-success'}"
@@ -53,7 +56,7 @@
 				{#if t.why && !compact}<p class="mt-0.5 text-xs text-muted-foreground">{t.why}</p>{/if}
 				{#if t.command}
 					<div class="mt-1.5 flex items-start gap-1">
-						<code class="min-w-0 flex-1 rounded-md bg-muted px-2 py-1 font-mono text-[0.75rem] break-all whitespace-pre-wrap">{t.command}</code>
+						<code class="min-w-0 flex-1 rounded-md bg-muted px-2 py-1 font-mono text-[0.75rem] [overflow-wrap:anywhere] whitespace-pre-wrap">{t.command}</code>
 						<button type="button" class="btn btn-ghost btn-icon btn-sm shrink-0" title="Copy the command" onclick={() => copyText(t.command!, 'Copied the command')}><Copy /></button>
 						{#if t.where === 'session-shell' && running(t.sessionId) && !t.doneAt}
 							<button type="button" class="btn btn-secondary btn-sm shrink-0" title="Open the Shell tab with it typed in, for you to check and run" onclick={() => runInShell(t)}><SquareTerminal />Run in Shell</button>
