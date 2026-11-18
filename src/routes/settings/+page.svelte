@@ -2,7 +2,6 @@
 	import { onMount, untrack } from 'svelte';
 	import { invalidateAll } from '$app/navigation';
 	import { Box, CircleCheck, CircleX, Container, Download, HardDrive, LoaderCircle, Save } from '@lucide/svelte';
-	import PageHeader from '#lib/components/PageHeader.svelte';
 	import BrandIcon from '#lib/components/BrandIcon.svelte';
 	import SettingsTabs from '#lib/components/SettingsTabs.svelte';
 	import Switch from '#lib/components/Switch.svelte';
@@ -100,8 +99,7 @@
 {/snippet}
 
 <div class="h-full overflow-y-auto">
-	<PageHeader title="Settings" description="Where sessions run, what every session container gets, and who can sign in." />
-	<SettingsTabs admin={data.admin} />
+	<SettingsTabs admin={data.admin} description="Where sessions run, and what every session container gets." />
 
 	<div class="max-w-4xl space-y-8 px-4 pt-6 pb-12 sm:px-8">
 		<section class="grid gap-3 md:grid-cols-3">

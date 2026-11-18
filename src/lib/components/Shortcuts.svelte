@@ -13,15 +13,17 @@
 	let pendingG = false;
 	let gTimer: ReturnType<typeof setTimeout> | undefined;
 
-	const GO: Record<string, string> = { s: '/', u: '/automations', a: '/accounts', ',': '/settings' };
+	const GO: Record<string, string> = { h: '/', s: '/', t: '/todo', a: '/settings/accounts', l: '/settings/library', u: '/settings/automations', ',': '/settings' };
 
 	const SHEET: [string[], string][] = [
 		[['⌘', 'K'], 'Jump to a session or page'],
 		[['n'], 'New session'],
 		[['[', ']'], 'Previous / next session'],
-		[['g', 's'], 'Sessions'],
-		[['g', 'u'], 'Automations'],
+		[['g', 'h'], 'Home'],
+		[['g', 't'], 'To do'],
 		[['g', 'a'], 'Accounts'],
+		[['g', 'l'], 'Library'],
+		[['g', 'u'], 'Automations'],
 		[['g', ','], 'Settings'],
 		[['⌘', 'B'], 'Collapse the sidebar'],
 		[['?'], 'This list']
