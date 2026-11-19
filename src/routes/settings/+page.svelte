@@ -168,6 +168,18 @@
 						<input id="cpu" class="input" type="number" min="0" step="0.5" placeholder="No limit" bind:value={form.cpus} />
 					</div>
 				</div>
+				<div class="grid grid-cols-2 gap-3 sm:col-span-2">
+					<div>
+						<label class="label" for="idle">Stop idle sessions after (hours)</label>
+						<input id="idle" class="input" type="number" min="0" step="0.5" placeholder="Never" bind:value={form.idleStopHours} />
+						<p class="mt-1 text-xs text-muted-foreground">No new conversation and nothing typed in its terminals for this long. A session whose agent is working is never idle.</p>
+					</div>
+					<div>
+						<label class="label" for="del">Delete stopped sessions after (days)</label>
+						<input id="del" class="input" type="number" min="0" step="0.5" placeholder="Never" bind:value={form.deleteStoppedDays} />
+						<p class="mt-1 text-xs text-muted-foreground">With their clone, home folder and conversations; pushed commits stay on GitHub. 0: never.</p>
+					</div>
+				</div>
 				<div>
 					<label class="label" for="dm">Default model</label>
 					<ModelPicker id="dm" bind:value={form.defaultModel} agent="claude" />

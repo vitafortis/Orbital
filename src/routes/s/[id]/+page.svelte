@@ -46,7 +46,7 @@
 	import { goto } from '$app/navigation';
 	import { api, errorMessage } from '#lib/client/api.ts';
 	import { copyText } from '#lib/client/clipboard.ts';
-	import { ago, githubLabel } from '#lib/client/format.ts';
+	import { ago, githubLabel, until } from '#lib/client/format.ts';
 	import { attachFiles, deleteSession, relaunchAgent, sendToSession, startSession, stopSession, type Launch } from '#lib/client/sessions.ts';
 	import QuestionBar from '#lib/components/QuestionBar.svelte';
 	import ReadView from '#lib/components/ReadView.svelte';
@@ -426,6 +426,9 @@
 				<span class="max-sm:sr-only">{CONN[conn].label}</span>
 			</span>
 		{/if}
+		{#if live?.stopsAt}
+			<span class="badge" title="It stops at {new Date(live.stopsAt).toLocaleString()} unless something happens first: a new message, or typing in its terminal (Settings → General)">Stops {until(live.stopsAt)} if idle</span>
+		{/if}
 		{#if s.rcUrl && running}
 			<a class="btn btn-secondary btn-sm max-sm:hidden" href={s.rcUrl} target="_blank" rel="noopener" title="Open this session in claude.ai (Remote Control)"><BrandIcon brand="claude" class="size-3.5" />Remote</a>
 		{/if}
@@ -492,6 +495,7 @@
 								{#if s.error}<pre class="mt-2 max-h-40 overflow-auto rounded-lg bg-black/30 p-3 font-mono text-[0.6875rem] whitespace-pre-wrap text-[#f2b8ba]">{s.error}</pre>{/if}
 							{:else}
 								<p class="font-medium">Session stopped</p>
+								{#if live?.deletesAt}<p class="mt-1 text-[0.8125rem] text-warning">Deleted {until(live.deletesAt)} ({new Date(live.deletesAt).toLocaleString()}), with its clone and conversations, unless it's started again.</p>{/if}
 								<p class="mt-1 text-[0.8125rem] text-[#9aa3b2]">The repo, its changes and every conversation are kept. Start it to get the terminal back.</p>
 							{/if}
 							<div class="mt-4 flex flex-wrap gap-2">

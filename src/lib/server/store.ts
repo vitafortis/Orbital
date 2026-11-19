@@ -294,6 +294,8 @@ export function defaultSettings(): Settings {
 		agentsImage: config.agentsImage,
 		network: config.sessionNetwork,
 		memoryMb: 0,
+		idleStopHours: 0,
+		deleteStoppedDays: 0,
 		cpus: 0,
 		defaultModel: '',
 		defaultPermissionMode: 'default',
