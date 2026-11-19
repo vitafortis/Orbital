@@ -14,8 +14,8 @@ export const PATCH: RequestHandler = handler(async ({ locals, params, request })
 	requireAdmin(locals);
 	const u = load(params.id);
 	const role = (await body(request)).role;
-	if (role !== 'admin' && role !== 'member') throw new BadRequest('Role must be admin or member');
-	if (u.role === 'admin' && role === 'member' && countAdmins() <= 1) throw new Conflict('Keep at least one admin');
+	if (role !== 'admin' && role !== 'member' && role !== 'viewer') throw new BadRequest('Role must be admin, member or viewer');
+	if (u.role === 'admin' && role !== 'admin' && countAdmins() <= 1) throw new Conflict('Keep at least one admin');
 	setUserRole(u.id, role);
 	return json(getUser(u.id));
 });

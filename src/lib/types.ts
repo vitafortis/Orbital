@@ -478,13 +478,16 @@ export interface Settings {
 }
 
 export interface Viewer {
+	id: string;
 	email: string;
 	name: string | null;
-	/** Admins manage sign-in, users and AWS access. */
+	role: UserRole;
+	/** Admins manage sign-in, users, accounts and the Library. */
 	admin: boolean;
 }
 
-export type UserRole = 'admin' | 'member';
+/** Admin: everything. Member: starts sessions and controls their own. Viewer: looks, changes nothing. */
+export type UserRole = 'admin' | 'member' | 'viewer';
 /** local: the email and password made at setup; oidc and proxy: signed in through SSO. */
 export type UserSource = 'local' | 'oidc' | 'proxy';
 
@@ -529,11 +532,18 @@ export interface AuthSettings {
 		/** Where Sign out goes, to end the proxy's session too. */
 		logoutUrl: string;
 	};
-	/** Who may sign in through SSO, and who becomes an admin. Emails, @domains, or * for anyone. */
+	/**
+	 * Who may sign in through SSO, and with which role: admins, then members, then everyone else
+	 * allowed in gets `defaultRole`. Emails, @domains, or * for anyone. The rules decide an SSO
+	 * user's role at every sign-in, so taking someone out of a group takes effect.
+	 */
 	access: {
 		allowedEmails: string[];
 		allowedGroups: string[];
 		adminEmails: string[];
 		adminGroups: string[];
+		memberEmails: string[];
+		memberGroups: string[];
+		defaultRole: 'member' | 'viewer';
 	};
 }

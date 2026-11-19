@@ -27,7 +27,10 @@
 			allowedEmails: s.access.allowedEmails.join('\n'),
 			allowedGroups: s.access.allowedGroups.join('\n'),
 			adminEmails: s.access.adminEmails.join('\n'),
-			adminGroups: s.access.adminGroups.join('\n')
+			adminGroups: s.access.adminGroups.join('\n'),
+			memberEmails: s.access.memberEmails.join('\n'),
+			memberGroups: s.access.memberGroups.join('\n'),
+			defaultRole: s.access.defaultRole
 		}
 	});
 
@@ -58,7 +61,7 @@
 			const payload = {
 				...form,
 				proxy: { ...form.proxy, trustedProxies: lines(form.proxy.trustedProxies) },
-				access: Object.fromEntries(Object.entries(form.access).map(([k, v]) => [k, lines(v)])),
+				access: { ...Object.fromEntries(Object.entries(form.access).map(([k, v]) => [k, lines(v)])), defaultRole: form.access.defaultRole },
 				clientSecret: removeSecret ? null : clientSecret || undefined
 			};
 			const r = await api.put<{ settings: AuthSettings }>('/api/sign-in', payload);
@@ -275,8 +278,8 @@
 		{#if ssoOn}
 			<section class="card space-y-4 p-5">
 				<div>
-					<span class="text-[0.9375rem] font-semibold tracking-tight">Who can sign in with SSO</span>
-					<span class="mt-0.5 block text-xs text-muted-foreground">Emails (<code class="font-mono">sam@example.com</code>), domains (<code class="font-mono">@example.com</code>) or <code class="font-mono">*</code>; groups by name. One per line.</span>
+					<span class="text-[0.9375rem] font-semibold tracking-tight">Who can sign in with SSO, and their role</span>
+					<span class="mt-0.5 block text-xs text-muted-foreground">Emails (<code class="font-mono">sam@example.com</code>), domains (<code class="font-mono">@example.com</code>) or <code class="font-mono">*</code>; groups by name. One per line. An SSO user's role follows these rules at every sign-in: admin, then member, else the default.</span>
 				</div>
 				<div class="grid gap-4 sm:grid-cols-2">
 					<div>
@@ -295,10 +298,25 @@
 						<label class="label" for="dg">Admin groups</label>
 						<textarea id="dg" class="input min-h-20 py-2 font-mono text-xs" bind:value={form.access.adminGroups}></textarea>
 					</div>
+					<div>
+						<label class="label" for="me">Member emails</label>
+						<textarea id="me" class="input min-h-20 py-2 font-mono text-xs" bind:value={form.access.memberEmails}></textarea>
+					</div>
+					<div>
+						<label class="label" for="mg">Member groups</label>
+						<textarea id="mg" class="input min-h-20 py-2 font-mono text-xs" bind:value={form.access.memberGroups}></textarea>
+					</div>
+					<div class="sm:col-span-2">
+						<label class="label" for="dr">Everyone else who's allowed in</label>
+						<select id="dr" class="input w-auto" bind:value={form.access.defaultRole}>
+							<option value="member">Member: starts sessions and controls their own</option>
+							<option value="viewer">Viewer: sees sessions, changes nothing</option>
+						</select>
+					</div>
 				</div>
 				<p class="text-xs {openAccess ? 'text-warning' : 'text-muted-foreground'}">
 					{#if openAccess}With no allowed emails or groups, everyone your provider lets through can sign in.{:else}Admins can always sign in.{/if}
-					Members use sessions, accounts and automations; admins also manage sign-in and users.
+					Viewers see sessions and change nothing; members start sessions and control their own; admins do everything, including everyone's sessions and all of Settings.
 				</p>
 			</section>
 		{/if}
@@ -323,6 +341,7 @@
 							<select class="input h-8 w-auto text-xs" value={u.role} onchange={(e) => setRole(u, e.currentTarget.value as UserRole)} aria-label="Role">
 								<option value="admin">Admin</option>
 								<option value="member">Member</option>
+								<option value="viewer">Viewer</option>
 							</select>
 							<button type="button" class="btn btn-ghost btn-icon btn-sm hover:text-danger" title="Remove" disabled={u.id === data.me} onclick={() => removeUser(u)}><Trash2 /></button>
 						</div>

@@ -34,6 +34,7 @@
 	import { deleteSession } from '#lib/client/sessions.ts';
 	import { connectLive, provideSessions, session, sessions, setTheme, theme } from '#lib/client/state.svelte.ts';
 	import { displayState, glowClass, sortByRecency, STATE_META, type DisplayState } from '#lib/session-state.ts';
+	import { canControl, canStartSessions } from '#lib/access.ts';
 	import { ago } from '#lib/client/format.ts';
 	import type { LayoutProps } from './$types';
 
@@ -153,7 +154,7 @@
 	</div>
 
 	<div class="px-2 pb-2">
-		<a href="/new" class="btn btn-primary w-full {compact ? 'btn-icon btn-sm' : 'h-8'}" title="New session"><Plus />{#if !compact}New session{/if}</a>
+		{#if canStartSessions(data.viewer)}<a href="/new" class="btn btn-primary w-full {compact ? 'btn-icon btn-sm' : 'h-8'}" title="New session"><Plus />{#if !compact}New session{/if}</a>{/if}
 	</div>
 
 	<nav class="space-y-0.5 px-2">
@@ -219,6 +220,7 @@
 						{#if isPinned}<PinOff class="size-3.5" />{:else}<Pin class="size-3.5" />{/if}
 					</button>
 					<!-- Deleting asks first; from the session's own page, it goes back to the overview. -->
+					{#if canControl(data.viewer, s)}
 					<button
 						type="button"
 						class="absolute top-1.5 right-8 grid size-6 place-items-center rounded-md text-muted-foreground opacity-0 group-hover:opacity-100 hover:bg-danger/10 hover:text-danger focus-visible:opacity-100"
@@ -228,6 +230,7 @@
 					>
 						<Trash2 class="size-3.5" />
 					</button>
+					{/if}
 				{/if}
 			</div>
 		{:else}
@@ -285,8 +288,11 @@
 			<header class="flex h-12 shrink-0 items-center gap-2 border-b border-border bg-surface px-3 md:hidden">
 				<button class="btn btn-ghost btn-icon btn-sm" aria-label="Menu" onclick={() => (drawer = true)}><Menu /></button>
 				<a href="/" class="flex items-center gap-2"><Logo size={22} /><span class="text-sm font-semibold tracking-tight">Orbital</span></a>
-				<a href="/new" class="btn btn-ghost btn-icon btn-sm ml-auto" aria-label="New session"><Plus /></a>
+				{#if canStartSessions(data.viewer)}<a href="/new" class="btn btn-ghost btn-icon btn-sm ml-auto" aria-label="New session"><Plus /></a>{/if}
 			</header>
+			{#if data.viewer && !data.viewer.admin && /^\/(settings|accounts|library|automations)(\/|$)/.test(page.url.pathname)}
+				<p class="shrink-0 border-b border-border bg-surface px-4 py-2 text-xs text-muted-foreground sm:px-8">You can look around Settings, but only an admin can change it.{#if data.viewer.role === 'member'} Your Notion connection is yours to change.{/if}</p>
+			{/if}
 			<main class="relative min-h-0 min-w-0 flex-1 overflow-hidden">
 				{@render children()}
 			</main>

@@ -13,7 +13,8 @@
 		onscreen,
 		onfiles,
 		turns = false,
-		highlight = false
+		highlight = false,
+		readOnly = false
 	}: {
 		/** The WebSocket path, e.g. /ws/sessions/<id>/terminal?mode=claude. */
 		path: string;
@@ -28,6 +29,8 @@
 		onfiles?: (files: File[]) => void;
 		/** Colour bold text, questions, urgent things and things for you to do on the agent's screen. */
 		highlight?: boolean;
+		/** Watching someone else's session: nothing typed or pasted is sent (the server drops it too). */
+		readOnly?: boolean;
 	} = $props();
 
 	// Highlights lie over the rows they colour: tmux draws in the alternate screen, where xterm's
@@ -43,6 +46,7 @@
 	let dropping = $state(false);
 	const hasFiles = (e: DragEvent) => !!e.dataTransfer?.types.includes('Files');
 	function onpaste(e: ClipboardEvent) {
+		if (readOnly) return e.preventDefault();
 		const files = [...(e.clipboardData?.files ?? [])];
 		if (!onfiles || !files.length) return;
 		e.preventDefault();
@@ -50,7 +54,7 @@
 		onfiles(files);
 	}
 	function ondragover(e: DragEvent) {
-		if (!onfiles || !hasFiles(e)) return;
+		if (readOnly || !onfiles || !hasFiles(e)) return;
 		e.preventDefault();
 		dropping = true;
 	}
@@ -156,7 +160,8 @@
 				fontFamily: "'Geist Mono Variable', ui-monospace, SFMono-Regular, Menlo, monospace",
 				fontSize: matchMedia('(pointer: coarse)').matches ? 12 : 13,
 				lineHeight: 1,
-				cursorBlink: true,
+				cursorBlink: !readOnly,
+				disableStdin: readOnly,
 				allowProposedApi: true,
 				// Hyperlinks a program prints (OSC 8) open in a new tab, like the plain-text ones.
 				linkHandler: { activate: (_e, uri) => window.open(uri, '_blank', 'noopener') },

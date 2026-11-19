@@ -22,8 +22,9 @@
 		updatedAt,
 		running,
 		agentName,
-		todos = []
-	}: { session: Pick<Session, 'id'>; updatedAt?: string; running: boolean; agentName: string; todos?: TodoItem[] } = $props();
+		todos = [],
+		control = true
+	}: { session: Pick<Session, 'id'>; updatedAt?: string; running: boolean; agentName: string; todos?: TodoItem[]; control?: boolean } = $props();
 
 	let data = $state<ReadConversation | null>(null);
 	let loaded = $state(false);
@@ -255,7 +256,7 @@
 				{#if todos.length}
 					<section data-todos class="rounded-xl border border-warning/40 bg-card p-3">
 						<h2 class="mb-1.5 text-[0.6875rem] font-semibold tracking-wider text-muted-foreground/80 uppercase">For you · {todos.length}</h2>
-						<TodoList items={todos} running={() => running} tell={tellByDefault()} compact />
+						<TodoList items={todos} running={() => running} tell={tellByDefault()} readOnly={!control} compact />
 					</section>
 				{/if}
 

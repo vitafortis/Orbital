@@ -94,8 +94,8 @@ export function proxyIdentity(headers: Headers, clientAddress: string | undefine
 	const email = headers.get(s.proxy.emailHeader)?.trim();
 	if (!email || !/^[^\s@]+@[^\s@]+$/.test(email)) return null;
 	const groups = (s.proxy.groupsHeader && headers.get(s.proxy.groupsHeader)?.split(/[,|]/).map((g) => g.trim()).filter(Boolean)) || [];
-	const { allowed, admin } = accessFor(s.access, email, groups);
+	const { allowed, role } = accessFor(s.access, email, groups);
 	if (!allowed) return { denied: `${email} isn't allowed to sign in to Orbital` };
 	const name = (s.proxy.nameHeader && headers.get(s.proxy.nameHeader)?.trim()) || null;
-	return { user: upsertExternalUser({ email, name, source: 'proxy', admin }) };
+	return { user: upsertExternalUser({ email, name, source: 'proxy', role }) };
 }
