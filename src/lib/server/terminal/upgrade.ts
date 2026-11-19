@@ -16,6 +16,7 @@ import { authenticateToken, sessionTokenFromHeader } from '../auth.ts';
 import { exec, execTty } from '../docker.ts';
 import { loginContainer } from '../accounts.ts';
 import { runningContainer, workdir } from '../sessions/runtime.ts';
+import { touchSession } from '../sessions/expiry.ts';
 
 const wss = new WebSocketServer({ noServer: true, maxPayload: 1024 * 1024 });
 
@@ -42,7 +43,7 @@ const clamp = (v: string | null, lo: number, hi: number, d: number) => {
 	return Number.isFinite(n) && n > 0 ? Math.min(hi, Math.max(lo, Math.round(n))) : d;
 };
 
-type Target = { container: string; cmd: string[]; workdir?: string; tmux?: boolean };
+type Target = { container: string; cmd: string[]; workdir?: string; tmux?: boolean; sessionId?: string };
 
 /**
  * Docker doesn't end an exec when its connection closes, so a viewer that went away (a tab
@@ -121,7 +122,7 @@ async function resolveTarget(path: string, params: URLSearchParams): Promise<Tar
 	if (m) {
 		const { session, container } = await runningContainer(m[1]);
 		const shell = params.get('mode') === 'shell';
-		return { container, workdir: workdir(session), cmd: shell ? ['bash', '-l'] : ATTACH, tmux: !shell };
+		return { container, workdir: workdir(session), cmd: shell ? ['bash', '-l'] : ATTACH, tmux: !shell, sessionId: session.id };
 	}
 	m = /^\/ws\/accounts\/([0-9a-f-]{36})\/login$/.exec(path);
 	if (m) {
@@ -227,6 +228,8 @@ async function bridge(ws: WebSocket, target: Target, cols: number, rows: number)
 	stream.once('close', leave);
 
 	ws.on('message', (data, isBinary) => {
+		// Typing keeps a session from expiring as idle (resizes and mouse reports too; close enough).
+		if (target.sessionId) touchSession(target.sessionId);
 		if (isBinary) {
 			stream.write(data as Buffer);
 			return;

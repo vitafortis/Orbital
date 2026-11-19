@@ -8,7 +8,7 @@
 	import PageHeader from '#lib/components/PageHeader.svelte';
 	import SessionCard from '#lib/components/SessionCard.svelte';
 	import StateDot from '#lib/components/StateDot.svelte';
-	import { ago, plural } from '#lib/client/format.ts';
+	import { ago, plural, until } from '#lib/client/format.ts';
 	import { deleteSession, startSession } from '#lib/client/sessions.ts';
 	import { useSessions } from '#lib/client/state.svelte.ts';
 	import { displayState, sortByRecency } from '#lib/session-state.ts';
@@ -128,6 +128,7 @@
 									</span>
 								</a>
 								<span class="hidden text-xs text-muted-foreground sm:block">{ago(sum?.updatedAt ?? s.stoppedAt ?? s.lastStartedAt ?? s.createdAt)}</span>
+								{#if shown.live[s.id]?.deletesAt}<span class="hidden text-xs text-warning sm:block" title="Deleted at {new Date(shown.live[s.id]!.deletesAt!).toLocaleString()} (Settings → General)">· deleted {until(shown.live[s.id]?.deletesAt)}</span>{/if}
 								<button class="btn btn-secondary btn-sm" title="Start and continue the newest conversation" onclick={() => startSession(s)}><Play />{failed ? 'Retry' : 'Resume'}</button>
 								<button class="btn btn-ghost btn-icon btn-sm hover:text-danger" title="Delete" onclick={() => deleteSession(s, '')}><Trash2 /></button>
 							</div>
