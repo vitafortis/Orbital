@@ -14,6 +14,7 @@
 		running = () => false,
 		tell,
 		compact = false,
+		readOnly = false,
 		onchange
 	}: {
 		items: TodoItem[];
@@ -22,8 +23,11 @@
 		/** Tick tells the session it's done. */
 		tell: boolean;
 		compact?: boolean;
+		/** Someone else's session (or a viewer): shown, not ticked; per item's session, or for all. */
+		readOnly?: boolean | ((sessionId: string) => boolean);
 		onchange?: () => void;
 	} = $props();
+	const locked = (t: TodoItem) => (typeof readOnly === 'function' ? readOnly(t.sessionId) : readOnly);
 
 	let busy = $state<string | null>(null);
 	async function toggle(t: TodoItem) {
@@ -43,7 +47,7 @@
 				class="mt-0.5 grid size-4 shrink-0 place-items-center rounded-full border transition-colors {t.doneAt ? 'border-success bg-success text-white' : 'border-muted-foreground/50 hover:border-success'}"
 				aria-label={t.doneAt ? 'Mark as not done' : 'Mark as done'}
 				title={t.doneAt ? 'Mark as not done' : tell ? 'Done (and tell the session)' : 'Done'}
-				disabled={busy === t.id}
+				disabled={busy === t.id || locked(t)}
 				onclick={() => toggle(t)}
 			>
 				{#if t.doneAt}<Check class="size-3" strokeWidth={3} />{/if}
@@ -55,7 +59,7 @@
 					<div class="mt-1.5 flex items-start gap-1">
 						<code class="min-w-0 flex-1 rounded-md bg-muted px-2 py-1 font-mono text-[0.75rem] break-all whitespace-pre-wrap">{t.command}</code>
 						<button type="button" class="btn btn-ghost btn-icon btn-sm shrink-0" title="Copy the command" onclick={() => copyText(t.command!, 'Copied the command')}><Copy /></button>
-						{#if t.where === 'session-shell' && running(t.sessionId) && !t.doneAt}
+						{#if t.where === 'session-shell' && running(t.sessionId) && !t.doneAt && !locked(t)}
 							<button type="button" class="btn btn-secondary btn-sm shrink-0" title="Open the Shell tab with it typed in, for you to check and run" onclick={() => runInShell(t)}><SquareTerminal />Run in Shell</button>
 						{/if}
 					</div>

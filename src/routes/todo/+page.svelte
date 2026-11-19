@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { page } from '$app/state';
 	import { ArrowRight, ChevronRight, ListChecks, LoaderCircle, Plus, TriangleAlert } from '@lucide/svelte';
 	import { onMount } from 'svelte';
 	import Dialog from '#lib/components/Dialog.svelte';
@@ -10,6 +11,7 @@
 	import { api, errorMessage } from '#lib/client/api.ts';
 	import { plural } from '#lib/client/format.ts';
 	import { useSessions } from '#lib/client/state.svelte.ts';
+	import { canControl, canStartSessions } from '#lib/access.ts';
 	import { addTodo, setTellByDefault, tellByDefault, WHERE_LABEL } from '#lib/client/todos.ts';
 	import { displayState, sortByRecency } from '#lib/session-state.ts';
 	import type { SystemTodo, TodoItem, TodoWhere } from '#lib/types.ts';
@@ -45,6 +47,8 @@
 
 	const sessionById = $derived(new Map(shown.list.map((s) => [s.id, s])));
 	const running = (id: string) => sessionById.get(id)?.status === 'running';
+	// Someone else's session: its items are shown, not ticked.
+	const locked = (id: string) => !canControl(page.data.viewer, sessionById.get(id) ?? { ownerId: null });
 	// Sessions with something open, newest activity first.
 	const groups = $derived(
 		sortByRecency(shown.list, shown.live)
@@ -79,7 +83,7 @@
 <div class="h-full overflow-y-auto">
 	<PageHeader title="To do" description={openCount ? `${plural(openCount, 'thing')} for you: logins, commands to run, approvals.` : 'What sessions need from you: logins, commands to run, approvals.'}>
 		{#snippet actions()}
-			{#if shown.list.length}<button class="btn btn-secondary" onclick={openAdd}><Plus />Add</button>{/if}
+			{#if shown.list.length && canStartSessions(page.data.viewer)}<button class="btn btn-secondary" onclick={openAdd}><Plus />Add</button>{/if}
 		{/snippet}
 	</PageHeader>
 
@@ -121,7 +125,7 @@
 						<StateDot state={displayState(g.session, shown.live[g.session.id])} />{g.session.name}
 						<span class="font-normal text-muted-foreground">· {plural(g.items.length, 'item')}</span>
 					</a>
-					<TodoList items={g.items} {running} {tell} onchange={load} />
+					<TodoList items={g.items} {running} {tell} readOnly={locked} onchange={load} />
 				</section>
 			{/each}
 
@@ -137,7 +141,7 @@
 						<ChevronRight class="size-3.5 transition-transform {showDone ? 'rotate-90' : ''}" />Done this week · {done.length}
 					</button>
 					{#if showDone}
-						<div class="mt-2"><TodoList items={done} {running} {tell} compact onchange={load} /></div>
+						<div class="mt-2"><TodoList items={done} {running} {tell} readOnly={locked} compact onchange={load} /></div>
 					{/if}
 				</section>
 			{/if}
@@ -150,7 +154,7 @@
 		<div>
 			<label class="label" for="td-session">Session</label>
 			<select id="td-session" class="input" bind:value={f.sessionId} required>
-				{#each shown.list as s (s.id)}<option value={s.id}>{s.name}</option>{/each}
+				{#each shown.list.filter((x) => canControl(page.data.viewer, x)) as s (s.id)}<option value={s.id}>{s.name}</option>{/each}
 			</select>
 		</div>
 		<div>

@@ -25,13 +25,13 @@ test('emailMatches and accessFor', async () => {
 	assert.ok(!emailMatches(['@example.com'], 'sam@notexample.com.evil'));
 	assert.ok(emailMatches(['*'], 'anyone@x.io'));
 	const none = { allowedEmails: [], allowedGroups: [], adminEmails: [], adminGroups: [] };
-	assert.deepEqual(accessFor(none, 'a@b.c', []), { allowed: true, admin: false });
+	assert.deepEqual(accessFor(none, 'a@b.c', []), { allowed: true, role: 'member' });
 	const rules = { allowedEmails: ['@home.arpa'], allowedGroups: ['devs'], adminEmails: ['me@x.io'], adminGroups: ['admins'] };
-	assert.deepEqual(accessFor(rules, 'kid@home.arpa', []), { allowed: true, admin: false });
-	assert.deepEqual(accessFor(rules, 'guest@x.io', ['devs']), { allowed: true, admin: false });
-	assert.deepEqual(accessFor(rules, 'guest@x.io', ['family']), { allowed: false, admin: false });
-	assert.deepEqual(accessFor(rules, 'boss@x.io', ['Admins']), { allowed: true, admin: true });
-	assert.deepEqual(accessFor(rules, 'me@x.io', []), { allowed: true, admin: true });
+	assert.deepEqual(accessFor(rules, 'kid@home.arpa', []), { allowed: true, role: 'member' });
+	assert.deepEqual(accessFor(rules, 'guest@x.io', ['devs']), { allowed: true, role: 'member' });
+	assert.deepEqual(accessFor(rules, 'guest@x.io', ['family']), { allowed: false, role: 'member' });
+	assert.deepEqual(accessFor(rules, 'boss@x.io', ['Admins']), { allowed: true, role: 'admin' });
+	assert.deepEqual(accessFor(rules, 'me@x.io', []), { allowed: true, role: 'admin' });
 });
 
 test('parseAuthSettings refuses settings that lock everyone out', async () => {

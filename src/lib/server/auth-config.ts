@@ -5,7 +5,7 @@
 import { config } from './config.ts';
 import { decrypt, encrypt } from './crypto.ts';
 import { getKv, setKv } from './store.ts';
-import type { AuthSettings } from '#lib/types.ts';
+import type { AuthSettings, UserRole } from '#lib/types.ts';
 
 // Docker's and the usual LAN ranges: a proxy in the same compose project or on the LAN.
 export const PRIVATE_RANGES = ['127.0.0.1/8', '::1/128', '10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16', 'fc00::/7'];
@@ -16,7 +16,7 @@ export function defaultAuthSettings(): AuthSettings {
 		passwordForm: true,
 		oidc: { enabled: false, issuer: '', clientId: '', hasSecret: false, scopes: 'openid email profile', label: 'SSO', groupsClaim: 'groups' },
 		proxy: { enabled: false, emailHeader: 'Remote-Email', nameHeader: 'Remote-Name', groupsHeader: 'Remote-Groups', trustedProxies: PRIVATE_RANGES, logoutUrl: '' },
-		access: { allowedEmails: [], allowedGroups: [], adminEmails: [], adminGroups: [] }
+		access: { allowedEmails: [], allowedGroups: [], adminEmails: [], adminGroups: [], memberEmails: [], memberGroups: [], defaultRole: 'member' }
 	};
 }
 
@@ -63,9 +63,17 @@ const groupsMatch = (patterns: string[], groups: string[]) => {
 	return groups.some((g) => want.has(g.trim().toLowerCase()));
 };
 
-/** Whether an SSO identity may sign in, and whether it is an admin. No allow list: anyone the provider lets through. */
-export function accessFor(a: AuthSettings['access'], email: string, groups: string[]): { allowed: boolean; admin: boolean } {
+/**
+ * Whether an SSO identity may sign in, and with which role: admin, then member, by the rules;
+ * anyone else allowed in gets the default role. No allow list: anyone the provider lets through.
+ */
+export function accessFor(a: AuthSettings['access'], email: string, groups: string[]): { allowed: boolean; role: UserRole } {
 	const admin = emailMatches(a.adminEmails, email) || groupsMatch(a.adminGroups, groups);
+	// Settings saved before member rules existed have none.
+	const member = emailMatches(a.memberEmails ?? [], email) || groupsMatch(a.memberGroups ?? [], groups);
 	const open = !a.allowedEmails.some((x) => x.trim()) && !a.allowedGroups.some((x) => x.trim());
-	return { allowed: admin || open || emailMatches(a.allowedEmails, email) || groupsMatch(a.allowedGroups, groups), admin };
+	return {
+		allowed: admin || member || open || emailMatches(a.allowedEmails, email) || groupsMatch(a.allowedGroups, groups),
+		role: admin ? 'admin' : member ? 'member' : a.defaultRole === 'viewer' ? 'viewer' : 'member'
+	};
 }

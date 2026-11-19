@@ -16,6 +16,7 @@ import { authenticateToken, sessionTokenFromHeader } from '../auth.ts';
 import { exec, execTty } from '../docker.ts';
 import { loginContainer } from '../accounts.ts';
 import { runningContainer, workdir } from '../sessions/runtime.ts';
+import { canControl, type Who } from '#lib/access.ts';
 
 const wss = new WebSocketServer({ noServer: true, maxPayload: 1024 * 1024 });
 
@@ -42,7 +43,8 @@ const clamp = (v: string | null, lo: number, hi: number, d: number) => {
 	return Number.isFinite(n) && n > 0 ? Math.min(hi, Math.max(lo, Math.round(n))) : d;
 };
 
-type Target = { container: string; cmd: string[]; workdir?: string; tmux?: boolean };
+/** `readOnly`: watching someone else's session (or as a viewer): tmux shows it, keys don't reach it. */
+type Target = { container: string; cmd: string[]; workdir?: string; tmux?: boolean; readOnly?: boolean };
 
 /**
  * Docker doesn't end an exec when its connection closes, so a viewer that went away (a tab
@@ -116,15 +118,27 @@ const ATTACH = [
 	'main'
 ];
 
-async function resolveTarget(path: string, params: URLSearchParams): Promise<Target> {
+/** A read-only tmux client: it can't type, and its window size doesn't change the session's. */
+const WATCH = [...ATTACH, '-f', 'read-only,ignore-size'];
+
+class Refused extends Error {}
+
+async function resolveTarget(path: string, params: URLSearchParams, who: Who): Promise<Target> {
 	let m = /^\/ws\/sessions\/([0-9a-f-]{36})\/terminal$/.exec(path);
 	if (m) {
 		const { session, container } = await runningContainer(m[1]);
 		const shell = params.get('mode') === 'shell';
+		if (!canControl(who, session)) {
+			// A shell is control of the container: no watching it.
+			if (shell) throw new Refused("Only the person who started this session (or an admin) can open its shell.");
+			return { container, workdir: workdir(session), cmd: WATCH, tmux: true, readOnly: true };
+		}
 		return { container, workdir: workdir(session), cmd: shell ? ['bash', '-l'] : ATTACH, tmux: !shell };
 	}
 	m = /^\/ws\/accounts\/([0-9a-f-]{36})\/login$/.exec(path);
 	if (m) {
+		// Signing a model account in is changing a shared account.
+		if (who?.role !== 'admin') throw new Refused('Only an admin can sign accounts in.');
 		const container = await loginContainer(m[1]);
 		if (!container) throw new Error('The sign-in container is not running');
 		return { container, cmd: ATTACH, tmux: true };
@@ -135,14 +149,14 @@ async function resolveTarget(path: string, params: URLSearchParams): Promise<Tar
 export async function handleUpgrade(req: IncomingMessage, socket: Duplex, head: Buffer) {
 	const url = new URL(req.url ?? '/', 'http://localhost');
 	if (!sameOrigin(req)) return reject(socket, 403, 'Cross-origin request blocked');
-	const { state } = authenticateToken(sessionTokenFromHeader(req.headers.cookie));
+	const { state, user } = authenticateToken(sessionTokenFromHeader(req.headers.cookie));
 	if (state !== 'authenticated' && state !== 'disabled') return reject(socket, 401, 'Not signed in');
 
 	let target: Target;
 	try {
-		target = await resolveTarget(url.pathname, url.searchParams);
+		target = await resolveTarget(url.pathname, url.searchParams, user);
 	} catch (err) {
-		return reject(socket, 409, err instanceof Error ? err.message : 'Unavailable');
+		return reject(socket, err instanceof Refused ? 403 : 409, err instanceof Error ? err.message : 'Unavailable');
 	}
 
 	const cols = clamp(url.searchParams.get('cols'), 20, 500, 120);
@@ -227,6 +241,8 @@ async function bridge(ws: WebSocket, target: Target, cols: number, rows: number)
 	stream.once('close', leave);
 
 	ws.on('message', (data, isBinary) => {
+		// Watching: nothing typed goes through, and the window size stays the owner's.
+		if (target.readOnly) return;
 		if (isBinary) {
 			stream.write(data as Buffer);
 			return;
