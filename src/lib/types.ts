@@ -350,6 +350,9 @@ export interface SessionLive {
 	aws: SessionAws[];
 	/** Its To do items still open. */
 	todos: TodoItem[];
+	/** When expiry will stop it (running and idle) or delete it (stopped), if set. */
+	stopsAt: string | null;
+	deletesAt: string | null;
 	at: string;
 }
 
@@ -464,6 +467,9 @@ export interface Settings {
 	/** Per-container limits; 0 means none. */
 	memoryMb: number;
 	cpus: number;
+	/** Expiry, to keep sessions short-lived: stop one idle this many hours, delete one stopped this many days; 0 means never. */
+	idleStopHours: number;
+	deleteStoppedDays: number;
 	defaultModel: string;
 	defaultPermissionMode: PermissionMode;
 	defaultRemoteControl: boolean;

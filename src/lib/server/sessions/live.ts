@@ -6,10 +6,11 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { exec } from '../docker.ts';
-import { getSession, listSessions, setSessionRcUrl } from '../store.ts';
+import { getSession, getSettings, listSessions, setSessionRcUrl } from '../store.ts';
 import { extractLinks, findRcUrl, paneState, parseProbe } from '#lib/pane.ts';
 import { checkPr } from './prs.ts';
-import { reconcile, runningContainer } from './runtime.ts';
+import { deleteSession, reconcile, runningContainer, stopSession } from './runtime.ts';
+import { enforceExpiry, expiryTimes } from './expiry.ts';
 import { metaDir } from './storage.ts';
 import { latestExcerpt, latestSummary } from './transcripts.ts';
 import { openTodos } from './todos.ts';
@@ -65,6 +66,7 @@ async function pollOnce() {
 	for (const userId of await renewNotionTokens().catch(() => [] as string[])) refreshSessionNotion(userId);
 	const withGit = tick++ % GIT_EVERY === 0;
 	const sessions = listSessions();
+	const settings = getSettings();
 	const results = await Promise.all(
 		sessions.map(async (s): Promise<SessionLive> => {
 			const p = await probe(s, withGit);
@@ -78,9 +80,22 @@ async function pollOnce() {
 				// Read while Claude was writing it: keep the last good one, or the panel jumps.
 				summary = lastSummary.get(s.id) ?? null;
 			}
-			return { id: s.id, status: s.status, ...p, summary, aiSummary: readAiSummary(s.id), aws: sessionAws(s.id), todos: openTodos(s.id), at: new Date().toISOString() };
+			const expiry = expiryTimes(s, { state: p.state, summary }, settings);
+			return { id: s.id, status: s.status, ...p, summary, aiSummary: readAiSummary(s.id), aws: sessionAws(s.id), todos: openTodos(s.id), ...expiry, at: new Date().toISOString() };
 		})
 	);
+	// Expiry: stop idle sessions, delete long-stopped ones (Settings → General).
+	const acted = await enforceExpiry(
+		results.map((r) => ({ id: r.id, name: sessions.find((s) => s.id === r.id)?.name ?? r.id, stopsAt: r.stopsAt, deletesAt: r.deletesAt })),
+		{ stop: stopSession, remove: deleteSession }
+	);
+	if (acted.stopped.length || acted.deleted.length) {
+		setTimeout(pokeLive, 500);
+		for (const id of acted.deleted) {
+			const i = results.findIndex((r) => r.id === id);
+			if (i >= 0) results.splice(i, 1);
+		}
+	}
 	live.clear();
 	for (const r of results) live.set(r.id, r);
 	const list = [...live.values()];

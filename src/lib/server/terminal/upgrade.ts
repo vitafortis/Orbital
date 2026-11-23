@@ -17,6 +17,7 @@ import { exec, execTty } from '../docker.ts';
 import { loginContainer } from '../accounts.ts';
 import { runningContainer, workdir } from '../sessions/runtime.ts';
 import { canControl, type Who } from '#lib/access.ts';
+import { touchSession } from '../sessions/expiry.ts';
 
 const wss = new WebSocketServer({ noServer: true, maxPayload: 1024 * 1024 });
 
@@ -44,7 +45,7 @@ const clamp = (v: string | null, lo: number, hi: number, d: number) => {
 };
 
 /** `readOnly`: watching someone else's session (or as a viewer): tmux shows it, keys don't reach it. */
-type Target = { container: string; cmd: string[]; workdir?: string; tmux?: boolean; readOnly?: boolean };
+type Target = { container: string; cmd: string[]; workdir?: string; tmux?: boolean; readOnly?: boolean; sessionId?: string };
 
 /**
  * Docker doesn't end an exec when its connection closes, so a viewer that went away (a tab
@@ -131,9 +132,9 @@ async function resolveTarget(path: string, params: URLSearchParams, who: Who): P
 		if (!canControl(who, session)) {
 			// A shell is control of the container: no watching it.
 			if (shell) throw new Refused("Only the person who started this session (or an admin) can open its shell.");
-			return { container, workdir: workdir(session), cmd: WATCH, tmux: true, readOnly: true };
+			return { container, workdir: workdir(session), cmd: WATCH, tmux: true, readOnly: true, sessionId: session.id };
 		}
-		return { container, workdir: workdir(session), cmd: shell ? ['bash', '-l'] : ATTACH, tmux: !shell };
+		return { container, workdir: workdir(session), cmd: shell ? ['bash', '-l'] : ATTACH, tmux: !shell, sessionId: session.id };
 	}
 	m = /^\/ws\/accounts\/([0-9a-f-]{36})\/login$/.exec(path);
 	if (m) {
@@ -243,6 +244,8 @@ async function bridge(ws: WebSocket, target: Target, cols: number, rows: number)
 	ws.on('message', (data, isBinary) => {
 		// Watching: nothing typed goes through, and the window size stays the owner's.
 		if (target.readOnly) return;
+		// Typing keeps a session from expiring as idle (resizes and mouse reports too; close enough).
+		if (target.sessionId) touchSession(target.sessionId);
 		if (isBinary) {
 			stream.write(data as Buffer);
 			return;

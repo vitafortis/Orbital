@@ -2,6 +2,7 @@ import { json } from '@sveltejs/kit';
 import { BadRequest, body, handler } from '#lib/server/http.ts';
 import { pokeLive } from '#lib/server/sessions/live.ts';
 import { sendToSession } from '#lib/server/sessions/runtime.ts';
+import { touchSession } from '#lib/server/sessions/expiry.ts';
 import type { RequestHandler } from './$types';
 
 // Keys the quick-reply bar can press, by tmux name.
@@ -16,6 +17,7 @@ export const POST: RequestHandler = handler(async ({ params, request }) => {
 	if (keys.some((k) => !KEYS.has(k))) throw new BadRequest('Unknown key');
 	if (!text && !keys.length && !b.enter) throw new BadRequest('Nothing to send');
 	await sendToSession(params.id, { text, keys, enter: b.enter === true });
+	touchSession(params.id);
 	setTimeout(pokeLive, 400);
 	return json({ ok: true });
 });
