@@ -5,7 +5,7 @@
 	import BrandIcon from '#lib/components/BrandIcon.svelte';
 	import Dialog from '#lib/components/Dialog.svelte';
 	import EmptyState from '#lib/components/EmptyState.svelte';
-	import PageHeader from '#lib/components/PageHeader.svelte';
+	import SettingsTabs from '#lib/components/SettingsTabs.svelte';
 	import Switch from '#lib/components/Switch.svelte';
 	import { api, errorMessage } from '#lib/client/api.ts';
 	import { confirmAction, toast } from '#lib/client/state.svelte.ts';
@@ -212,13 +212,10 @@
 <svelte:head><title>Library · Orbital</title></svelte:head>
 
 <div class="h-full overflow-y-auto">
-	<PageHeader title="Library" description="What every Claude session gets, set up once: how it writes, and tools to connect to.">
-		{#snippet actions()}
-			{#if admin && data.servers.length}<button class="btn btn-primary" onclick={() => openForm(null)}><Plus />Add a server</button>{/if}
-		{/snippet}
-	</PageHeader>
+	<SettingsTabs admin={data.viewer?.admin ?? false} description="What every Claude session gets, set up once: how it writes, skills, and tools to connect to." />
 
-	<div class="space-y-8 px-4 pb-10 sm:px-8">
+	<!-- Two columns on wide screens: your Notion and the reply style, then skills and MCP servers. -->
+	<div class="grid max-w-4xl items-start gap-8 px-4 pb-10 sm:px-8 2xl:max-w-none 2xl:grid-cols-2">
 		<section id="notion">
 			<div class="mb-3">
 				<h2 class="flex items-center gap-2 text-[0.9375rem] font-semibold tracking-tight"><BrandIcon brand="notion" />Your Notion</h2>
@@ -315,7 +312,8 @@
 
 		<section>
 			<div class="mb-3">
-				<h2 class="flex items-center gap-2 text-[0.9375rem] font-semibold tracking-tight"><Plug class="size-4" />MCP servers</h2>
+				<h2 class="flex items-center gap-2 text-[0.9375rem] font-semibold tracking-tight"><Plug class="size-4" />MCP servers
+					{#if admin && data.servers.length}<button class="btn btn-secondary btn-sm ml-auto" onclick={() => openForm(null)}><Plus />Add a server</button>{/if}</h2>
 				<p class="max-w-2xl text-xs text-muted-foreground">
 					Claude Code connects to these in every session they're for, with the secrets kept here: Notion, Sentry, a database, your own tools. A change applies when Claude next starts. Codex and Gemini sessions don't get them.
 				</p>

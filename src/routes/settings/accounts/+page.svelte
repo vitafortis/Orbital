@@ -33,7 +33,7 @@
 	import EmptyState from '#lib/components/EmptyState.svelte';
 	import ModelPicker from '#lib/components/ModelPicker.svelte';
 	import { modelLabel } from '#lib/models.ts';
-	import PageHeader from '#lib/components/PageHeader.svelte';
+	import SettingsTabs from '#lib/components/SettingsTabs.svelte';
 	import LinkBar from '#lib/components/LinkBar.svelte';
 	import Terminal from '#lib/components/Terminal.svelte';
 	import { api, errorMessage } from '#lib/client/api.ts';
@@ -531,11 +531,14 @@
 {/snippet}
 
 <div class="h-full overflow-y-auto">
-	<PageHeader title="Accounts" description="The models sessions run on, which repos use which, and how sessions reach GitHub." />
+	<SettingsTabs admin={data.viewer?.admin ?? false} description="The models sessions run on, which repos use which, and how sessions reach GitHub and AWS." />
 
-	<div class="max-w-4xl space-y-8 px-4 pb-12 sm:px-8">
+	<!-- Two columns on wide screens (models and profiles, then GitHub and AWS), one otherwise. -->
+	<div class="grid max-w-4xl items-start gap-8 px-4 pb-12 sm:px-8 2xl:max-w-none 2xl:grid-cols-2">
 		{#if !shown.list.length}
-			<GettingStarted compact accounts={data.accounts} signingIn={data.signingIn} githubAccounts={data.githubAccounts.length} onaddmodel={openAdd} onaddgithub={() => openToken(null)} />
+			<div class="2xl:col-span-2">
+				<GettingStarted compact accounts={data.accounts} signingIn={data.signingIn} githubAccounts={data.githubAccounts.length} onaddmodel={openAdd} onaddgithub={() => openToken(null)} />
+			</div>
 		{/if}
 
 		<section>

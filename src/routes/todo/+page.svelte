@@ -83,18 +83,16 @@
 <div class="h-full overflow-y-auto">
 	<PageHeader title="To do" description={openCount ? `${plural(openCount, 'thing')} for you: logins, commands to run, approvals.` : 'What sessions need from you: logins, commands to run, approvals.'}>
 		{#snippet actions()}
+			<label class="flex items-center gap-2 text-xs text-muted-foreground" title="Ticking an item sends its session “Done: …”, so it carries on">
+				Tell the session when I tick
+				<Switch checked={tell} label="Tell the session" onchange={(v) => ((tell = v), setTellByDefault(v))} />
+			</label>
 			{#if shown.list.length && canStartSessions(page.data.viewer)}<button class="btn btn-secondary" onclick={openAdd}><Plus />Add</button>{/if}
 		{/snippet}
 	</PageHeader>
 
-	<div class="mx-auto max-w-3xl space-y-6 px-4 pb-10 sm:px-8">
-		<label class="flex items-center justify-between gap-3 rounded-lg border border-border bg-surface px-3 py-2.5">
-			<span class="text-[0.8125rem]">
-				<span class="block font-medium">Tell the session when I tick something</span>
-				<span class="block text-xs text-muted-foreground">It gets “Done: …” as a message, and carries on.</span>
-			</span>
-			<Switch checked={tell} label="Tell the session" onchange={(v) => ((tell = v), setTellByDefault(v))} />
-		</label>
+	<!-- Sessions side by side on wide screens, rather than one narrow column. -->
+	<div class="space-y-6 px-4 pb-10 sm:px-8">
 
 		{#if !loaded}
 			<p class="flex items-center gap-2 text-sm text-muted-foreground"><LoaderCircle class="size-4 animate-spin" />Loading…</p>
@@ -104,7 +102,7 @@
 			{#if system.length}
 				<section>
 					<h2 class="mb-2 px-1 text-[0.6875rem] font-semibold tracking-wider text-muted-foreground/80 uppercase">From Orbital</h2>
-					<ul class="space-y-1.5">
+					<ul class="grid gap-2 lg:grid-cols-2 2xl:grid-cols-3">
 						{#each system as t (t.id)}
 							<li class="flex items-center gap-3 rounded-lg border border-warning/40 bg-card px-3 py-2.5">
 								<TriangleAlert class="size-4 shrink-0 text-warning" />
@@ -119,19 +117,29 @@
 				</section>
 			{/if}
 
-			{#each groups as g (g.session.id)}
-				<section>
-					<a href="/s/{g.session.id}" class="mb-2 flex items-center gap-2 px-1 text-[0.8125rem] font-semibold hover:text-primary">
-						<StateDot state={displayState(g.session, shown.live[g.session.id])} />{g.session.name}
-						<span class="font-normal text-muted-foreground">· {plural(g.items.length, 'item')}</span>
-					</a>
-					<TodoList items={g.items} {running} {tell} readOnly={locked} onchange={load} />
-				</section>
-			{/each}
+			{#if groups.length}
+				<div class="grid items-start gap-4 lg:grid-cols-2 2xl:grid-cols-3">
+					{#each groups as g (g.session.id)}
+						<section class="card px-4 pt-3 pb-1">
+							<a href="/s/{g.session.id}" class="flex items-center gap-2 text-[0.8125rem] font-semibold hover:text-primary">
+								<StateDot state={displayState(g.session, shown.live[g.session.id])} /><span class="truncate">{g.session.name}</span>
+								<span class="shrink-0 font-normal text-muted-foreground">· {plural(g.items.length, 'item')}</span>
+							</a>
+							<TodoList items={g.items} {running} {tell} readOnly={locked} flat onchange={load} />
+						</section>
+					{/each}
+				</div>
+			{/if}
 
 			{#if !groups.length && !system.length}
-				<div class="card">
-					<EmptyState icon={ListChecks} title="Nothing for you to do" body="When a session needs you to log in, run a command or approve something, it lands here, with the exact command." />
+				<div class="card max-w-2xl">
+					<EmptyState
+						icon={ListChecks}
+						title="Nothing for you to do"
+						body="When a session needs you to log in, run a command or approve something, Claude adds it here with the exact command (sessions started on this release, or after Session → Restart Claude). You can add your own too."
+					>
+						{#snippet action()}{#if shown.list.length && canStartSessions(page.data.viewer)}<button class="btn btn-secondary btn-sm" onclick={openAdd}><Plus />Add one</button>{/if}{/snippet}
+					</EmptyState>
 				</div>
 			{/if}
 
@@ -141,7 +149,7 @@
 						<ChevronRight class="size-3.5 transition-transform {showDone ? 'rotate-90' : ''}" />Done this week · {done.length}
 					</button>
 					{#if showDone}
-						<div class="mt-2"><TodoList items={done} {running} {tell} readOnly={locked} compact onchange={load} /></div>
+						<div class="mt-2 max-w-3xl"><TodoList items={done} {running} {tell} readOnly={locked} compact onchange={load} /></div>
 					{/if}
 				</section>
 			{/if}
