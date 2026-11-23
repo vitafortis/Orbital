@@ -214,7 +214,8 @@
 <div class="h-full overflow-y-auto">
 	<SettingsTabs admin={data.viewer?.admin ?? false} description="What every Claude session gets, set up once: how it writes, skills, and tools to connect to." />
 
-	<div class="space-y-8 px-4 pb-10 sm:px-8">
+	<!-- Two columns on wide screens: your Notion and the reply style, then skills and MCP servers. -->
+	<div class="grid max-w-4xl items-start gap-8 px-4 pb-10 sm:px-8 2xl:max-w-none 2xl:grid-cols-2">
 		<section id="notion">
 			<div class="mb-3">
 				<h2 class="flex items-center gap-2 text-[0.9375rem] font-semibold tracking-tight"><BrandIcon brand="notion" />Your Notion</h2>

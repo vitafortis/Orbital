@@ -19,7 +19,7 @@
 		[['⌘', 'K'], 'Jump to a session or page'],
 		[['n'], 'New session'],
 		[['[', ']'], 'Previous / next session'],
-		[['g', 'h'], 'Home'],
+		[['g', 's'], 'Sessions'],
 		[['g', 't'], 'To do'],
 		[['g', 'a'], 'Accounts'],
 		[['g', 'l'], 'Library'],

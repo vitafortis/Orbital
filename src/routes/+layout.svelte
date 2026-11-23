@@ -5,7 +5,7 @@
 	import { goto } from '$app/navigation';
 	import { onMount } from 'svelte';
 	import {
-		House,
+		LayoutDashboard,
 		ListChecks,
 		Plus,
 		Moon,
@@ -68,7 +68,7 @@
 	});
 
 	const nav = [
-		{ href: '/', label: 'Home', icon: House },
+		{ href: '/', label: 'Sessions', icon: LayoutDashboard },
 		{ href: '/todo', label: 'To do', icon: ListChecks },
 		// Accounts, the Library, automations and the rest are tabs in here.
 		{ href: '/settings', label: 'Settings', icon: Settings }
