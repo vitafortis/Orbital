@@ -455,7 +455,7 @@
 			</div>
 		</div>
 	{:else}
-	<form class="max-w-3xl space-y-3 px-4 pb-8 sm:px-8" onsubmit={submit}>
+	<form class="max-w-3xl space-y-3 px-4 pb-8 sm:px-8 xl:max-w-7xl" onsubmit={submit}>
 		<div class="grid gap-2 sm:grid-cols-2">
 			{#each [{ value: 'task', icon: ListChecks, title: 'Work on a task', body: 'Start the agent with a message, or at the prompt.' }, { value: 'skill', icon: Wand, title: 'Run a skill', body: 'Start with a skill or command, e.g. /code-review on a pull request.' }] as m (m.value)}
 				<button
@@ -483,6 +483,8 @@
 			</div>
 		{/if}
 
+		<!-- Side by side on wide screens: the repo on the left, the session on the right. -->
+		<div class="space-y-3 xl:grid xl:grid-cols-2 xl:items-start xl:gap-4 xl:space-y-0">
 		<section class="card space-y-3 p-4">
 			<div class="flex items-center justify-between gap-3">
 				<h2 class="text-[0.9375rem] font-semibold tracking-tight">Repository</h2>
@@ -686,7 +688,7 @@
 							>
 								<span class="min-w-0">
 									<span class="flex items-center gap-1.5 font-mono text-[0.8125rem] font-medium">{o.command}{#if o.source === 'account'}<span class="badge">yours</span>{:else if o.source === 'library'}<span class="badge badge-primary">Library</span>{/if}</span>
-									{#if o.description}<span class="line-clamp-2 block text-xs text-muted-foreground">{o.description}</span>{/if}
+									{#if o.description}<span class="line-clamp-3 text-xs text-muted-foreground" title={o.description}>{o.description}</span>{/if}
 								</span>
 							</button>
 						{/each}
@@ -804,6 +806,7 @@
 				</div>
 			{/if}
 		</section>
+		</div>
 
 		{#if error}<p class="rounded-lg bg-danger/10 px-3 py-2 text-[0.8125rem] text-danger">{error}</p>{/if}
 		<div class="flex items-center justify-end gap-2">
