@@ -18,6 +18,7 @@
 		Pin,
 		PinOff,
 		Trash2,
+		Users,
 		X
 	} from '@lucide/svelte';
 	import type { Session } from '#lib/types.ts';
@@ -31,7 +32,7 @@
 	import { deleteSession } from '#lib/client/sessions.ts';
 	import { connectLive, provideSessions, session, sessions, setTheme, theme } from '#lib/client/state.svelte.ts';
 	import { displayState, glowClass, sortByRecency, STATE_META, type DisplayState } from '#lib/session-state.ts';
-	import { canControl, canStartSessions } from '#lib/access.ts';
+	import { canChangeSetup, canStartSessions } from '#lib/access.ts';
 	import { ago } from '#lib/client/format.ts';
 	import type { LayoutProps } from './$types';
 
@@ -41,6 +42,7 @@
 	$effect.pre(() => {
 		sessions.list = data.sessions;
 		sessions.live = Object.fromEntries(data.live.map((l) => [l.id, l]));
+		sessions.owners = data.owners;
 		sessions.seeded = true;
 		session.viewer = data.viewer;
 	});
@@ -198,7 +200,12 @@
 					<StateDot state={view} class={compact ? '' : 'mt-0.5 self-start'} />
 					{#if !compact}
 						<span class="min-w-0 flex-1">
-							<span class="block truncate text-[0.8125rem] {active ? 'font-medium' : ''} {s.status === 'stopped' ? 'opacity-70' : ''}">{s.name}</span>
+							<span class="flex items-center gap-1.5 text-[0.8125rem] {active ? 'font-medium' : ''} {s.status === 'stopped' ? 'opacity-70' : ''}">
+								<span class="truncate">{s.name}</span>
+								<!-- Whose: shared (everyone's), or someone else's initials. -->
+								{#if s.shared}<span class="shrink-0 text-muted-foreground" title="Shared with everyone"><Users class="size-3" /></span>
+								{:else if s.ownerId && s.ownerId !== data.viewer?.id && shown.owners[s.ownerId]}<span class="grid size-4 shrink-0 place-items-center rounded-full bg-surface text-[0.5625rem] font-semibold text-muted-foreground uppercase ring-1 ring-border" title="{shown.owners[s.ownerId]}'s session">{shown.owners[s.ownerId].slice(0, 1)}</span>{/if}
+							</span>
 							<span class="block truncate text-[0.6875rem] {now.tone || 'text-muted-foreground/80'}">{now.text}</span>
 						</span>
 					{/if}
@@ -215,7 +222,7 @@
 						{#if isPinned}<PinOff class="size-3.5" />{:else}<Pin class="size-3.5" />{/if}
 					</button>
 					<!-- Deleting asks first; from the session's own page, it goes back to the overview. -->
-					{#if canControl(data.viewer, s)}
+					{#if canChangeSetup(data.viewer, s)}
 					<button
 						type="button"
 						class="absolute top-1.5 right-8 grid size-6 place-items-center rounded-md text-muted-foreground opacity-0 group-hover:opacity-100 hover:bg-danger/10 hover:text-danger focus-visible:opacity-100"

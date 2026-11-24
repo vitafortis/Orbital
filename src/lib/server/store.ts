@@ -227,6 +227,10 @@ function migrate(h: DatabaseSync) {
 	if (!ruleCols.has('profile_id')) h.exec('ALTER TABLE linear_rules ADD COLUMN profile_id TEXT');
 	add('aws_profiles', `TEXT NOT NULL DEFAULT '[]'`);
 	add('owner_id', 'TEXT');
+	// Sessions from before anyone signed in (no owner, or "open" while sign-in was off) are the
+	// organization's: shared.
+	if (!cols.has('shared')) h.exec(`ALTER TABLE sessions ADD COLUMN shared INTEGER NOT NULL DEFAULT 0; UPDATE sessions SET shared = 1 WHERE owner_id IS NULL OR owner_id = 'open';`);
+	add('watchable', 'INTEGER NOT NULL DEFAULT 0');
 	const profileCols = new Set((h.prepare(`SELECT name FROM pragma_table_info('profiles')`).all() as { name: string }[]).map((c) => c.name));
 	if (!profileCols.has('aws_profiles')) h.exec(`ALTER TABLE profiles ADD COLUMN aws_profiles TEXT NOT NULL DEFAULT '[]'`);
 	h.exec(`
@@ -745,6 +749,8 @@ function toSession(r: Row): Session {
 		id: r.id as string,
 		name: r.name as string,
 		ownerId: (r.owner_id as string) ?? null,
+		shared: !!r.shared,
+		watchable: !!r.watchable,
 		repoUrl: r.repo_url as string,
 		repoFullName: (r.repo_full_name as string) ?? null,
 		repoDir: r.repo_dir as string,
@@ -798,14 +804,14 @@ export function containerNamesInUse(): Set<string> {
 
 export function createSession(
 	id: string,
-	input: Omit<SessionInput, 'prompt'> & { repoDir: string; containerName: string; linear?: LinearRef | null; ownerId?: string | null }
+	input: Omit<SessionInput, 'prompt'> & { repoDir: string; containerName: string; linear?: LinearRef | null; ownerId?: string | null; shared?: boolean }
 ): Session {
 	db()
 		.prepare(
 			`INSERT INTO sessions (id, name, repo_url, repo_full_name, repo_dir, base_branch, new_branch, claude_account_id,
 				github_account_id, model, permission_mode, remote_control, status, created_at,
-				container_name, kind, skill, checkout_pr, linear_issue_id, linear_identifier, linear_url, aws_profiles, owner_id)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'stopped', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+				container_name, kind, skill, checkout_pr, linear_issue_id, linear_identifier, linear_url, aws_profiles, owner_id, shared)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'stopped', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 		)
 		.run(
 			id,
@@ -829,7 +835,9 @@ export function createSession(
 			input.linear?.identifier ?? null,
 			input.linear?.url ?? null,
 			JSON.stringify(input.awsProfileIds ?? []),
-			input.ownerId ?? null
+			input.ownerId ?? null,
+			// Automations' sessions (no owner), and those started with sign-in off, are shared.
+			input.shared || !input.ownerId || input.ownerId === 'open' ? 1 : 0
 		);
 	return getSession(id)!;
 }
@@ -845,11 +853,17 @@ export function setSessionContainerName(id: string, name: string) {
 }
 
 /** Fields that can change after creation; they apply from the next launch. */
+export function setSessionOwner(id: string, ownerId: string | null) {
+	db().prepare('UPDATE sessions SET owner_id = ? WHERE id = ?').run(ownerId, id);
+}
+
 export function updateSession(
 	id: string,
-	patch: Partial<Pick<Session, 'name' | 'model' | 'permissionMode' | 'remoteControl' | 'accountId' | 'githubAccountId' | 'awsProfileIds'>>
+	patch: Partial<Pick<Session, 'name' | 'model' | 'permissionMode' | 'remoteControl' | 'accountId' | 'githubAccountId' | 'awsProfileIds' | 'shared' | 'watchable'>>
 ) {
 	const cols: Record<string, string> = {
+		shared: 'shared',
+		watchable: 'watchable',
 		name: 'name',
 		model: 'model',
 		permissionMode: 'permission_mode',

@@ -58,6 +58,7 @@
 	let model = $state(initial.settings.defaultModel);
 	let permissionMode = $state<PermissionMode>(initial.settings.defaultPermissionMode);
 	let remoteControl = $state(initial.settings.defaultRemoteControl);
+	let shared = $state(false);
 	let busy = $state(false);
 	let error = $state('');
 
@@ -431,7 +432,8 @@
 				model: model || null,
 				permissionMode,
 				remoteControl: rcAvailable && remoteControl,
-				awsProfileIds
+				awsProfileIds,
+				shared
 			});
 			remember(full);
 			upsertSession(s);
@@ -805,6 +807,18 @@
 					</div>
 					<Switch checked={rcAvailable && remoteControl} disabled={!rcAvailable} label="Remote Control" onchange={(v) => (remoteControl = v)} />
 				</div>
+				{#if page.data.viewer?.admin}
+					<!-- Shared: the organization's. Every member can run it; only admins change its accounts. -->
+					<div class="flex items-center gap-3">
+						<div class="min-w-0 flex-1 text-[0.8125rem]">
+							<p class="font-medium">Shared with everyone</p>
+							<p class="text-xs {shared && (account?.ownerId || github?.ownerId) ? 'text-warning' : 'text-muted-foreground'}">
+								{shared && (account?.ownerId || github?.ownerId) ? "A shared session uses the organization's accounts only: pick one of those above." : 'Every member can start, stop and type into it; only admins change what it runs as.'}
+							</p>
+						</div>
+						<Switch checked={shared} label="Shared with everyone" onchange={(v) => (shared = v)} />
+					</div>
+				{/if}
 				</div>
 			{/if}
 		</section>

@@ -32,7 +32,7 @@ export function writeSessionMcp(sessionId: string, accountId: string, ownerId: s
 		accountId
 	);
 	config.mcpServers[ORBITAL_MCP] = { type: 'stdio', command: 'node', args: [`${IN_CONTAINER}/${ORB_MCP_FILE}`] };
-	if (writeSessionNotion({ id: sessionId, ownerId })) config.mcpServers.notion = { type: 'stdio', command: 'node', args: [`${IN_CONTAINER}/${NOTION_BRIDGE_FILE}`] };
+	if (writeSessionNotion({ id: sessionId, ownerId, shared: false })) config.mcpServers.notion = { type: 'stdio', command: 'node', args: [`${IN_CONTAINER}/${NOTION_BRIDGE_FILE}`] };
 	write(join(dir, 'mcp.json'), JSON.stringify(config, null, 2), 0o600);
 	return `${IN_CONTAINER}/mcp.json`;
 }

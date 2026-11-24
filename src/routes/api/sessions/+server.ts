@@ -1,13 +1,16 @@
 import { json } from '@sveltejs/kit';
-import { body, handler } from '#lib/server/http.ts';
+import { body, Forbidden, handler } from '#lib/server/http.ts';
 import { launchNewSession } from '#lib/server/sessions/create.ts';
 import { parseSessionInput } from '#lib/server/sessions/input.ts';
-import { listSessions } from '#lib/server/store.ts';
+import { sessionsFor } from '#lib/server/visibility.ts';
 import type { RequestHandler } from './$types';
 
-export const GET: RequestHandler = () => json(listSessions());
+export const GET: RequestHandler = ({ locals }) => json(sessionsFor(locals.user));
 
 /** Creates a session and starts it in the background (the first start may pull the image). */
-export const POST: RequestHandler = handler(async ({ request, locals }) =>
-	json(await launchNewSession(parseSessionInput(await body(request)), { ownerId: locals.user?.id ?? null }), { status: 201 })
-);
+export const POST: RequestHandler = handler(async ({ request, locals }) => {
+	const b = await body(request);
+	// Shared (the organization's): admins start those.
+	if (b.shared === true && locals.user?.role !== 'admin') throw new Forbidden('Only an admin can start a shared session');
+	return json(await launchNewSession(parseSessionInput(b), { ownerId: locals.user?.id ?? null, shared: b.shared === true }), { status: 201 });
+});

@@ -202,6 +202,13 @@ export interface Session {
 	name: string;
 	/** The Orbital user who started it (their personal connections, e.g. Notion, go with it); null for automations and older sessions. */
 	ownerId: string | null;
+	/**
+	 * The organization's: every member can start, stop and type into it; only admins change its
+	 * accounts. It uses the organization's accounts only. Sessions without an owner are shared.
+	 */
+	shared: boolean;
+	/** Its owner lets everyone watch it, whatever Sign-in & users says about other people's sessions. */
+	watchable: boolean;
 	/** Docker container name: orbital-<repo>, with -2, -3… for more sessions on one repo. */
 	containerName: string;
 	kind: SessionKind;
@@ -334,6 +341,15 @@ export interface SystemTodo {
 	title: string;
 	why: string;
 	href: string;
+}
+
+/** What a session runs as, for its page: each account's name, and whether it's its owner's own (not the organization's). */
+export interface RunsAs {
+	model: { name: string; kind: AccountKind; own: boolean } | null;
+	github: { name: string; login: string; own: boolean } | null;
+	/** Its owner's own Notion goes with it. */
+	notion: boolean;
+	aws: string[];
 }
 
 /** Everything the overview and session page show live, per session. */
@@ -579,5 +595,12 @@ export interface AuthSettings {
 		memberEmails: string[];
 		memberGroups: string[];
 		defaultRole: 'member' | 'viewer';
+		/**
+		 * What members and viewers see of someone else's (unshared) session: everything, read-only
+		 * (`watch`); its name, repo and state (`names`); or nothing (`hidden`).
+		 */
+		othersSessions?: OthersSessions;
 	};
 }
+
+export type OthersSessions = 'watch' | 'names' | 'hidden';

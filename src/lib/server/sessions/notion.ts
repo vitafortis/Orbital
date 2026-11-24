@@ -86,9 +86,10 @@ function write(file: string, text: string, mode: number) {
  * Gives the session its owner's Notion (the relay and the current token), or takes it away.
  * Whether it has it now, for its MCP config.
  */
-export function writeSessionNotion(s: Pick<Session, 'id' | 'ownerId'>): boolean {
+export function writeSessionNotion(s: Pick<Session, 'id' | 'ownerId' | 'shared'>): boolean {
 	const dir = metaDir(s.id);
-	const token = notionAccessToken(s.ownerId);
+	// A shared session is the organization's: nobody's own Notion goes with it.
+	const token = s.shared ? null : notionAccessToken(s.ownerId);
 	if (!token) {
 		rmSync(join(dir, TOKEN_FILE), { force: true });
 		return false;
