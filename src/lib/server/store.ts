@@ -1,4 +1,5 @@
 import { DatabaseSync } from 'node:sqlite';
+import { BadRequest } from './http.ts';
 import { chmodSync, existsSync, mkdirSync, renameSync } from 'node:fs';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -214,6 +215,10 @@ function migrate(h: DatabaseSync) {
 	if (!userCols.has('role_rule')) h.exec('ALTER TABLE users ADD COLUMN role_rule TEXT');
 	if (!userCols.has('temp_role')) h.exec('ALTER TABLE users ADD COLUMN temp_role TEXT');
 	if (!userCols.has('temp_until')) h.exec('ALTER TABLE users ADD COLUMN temp_until TEXT');
+	// The single sign-on identity linked to a user (the provider's issuer and subject), so a new
+	// email at the provider is the same person, and a password account can sign in with SSO too.
+	if (!userCols.has('sso_subject')) h.exec('ALTER TABLE users ADD COLUMN sso_subject TEXT');
+	h.exec('CREATE UNIQUE INDEX IF NOT EXISTS users_sso_subject ON users (sso_subject) WHERE sso_subject IS NOT NULL');
 	h.exec(`
 		CREATE TABLE IF NOT EXISTS access_requests (
 			id TEXT PRIMARY KEY,
@@ -367,6 +372,8 @@ function toUser(r: Row): User {
 		roleRule: (r.role_rule as string) ?? null,
 		tempRole: temp ? tempRole : null,
 		tempUntil: temp ? tempUntil : null,
+		hasPassword: !!r.password_hash,
+		ssoLinked: !!r.sso_subject,
 		source: (r.source as UserSource) ?? 'local',
 		createdAt: r.created_at as string,
 		lastLoginAt: (r.last_login_at as string) ?? null
@@ -393,8 +400,20 @@ export function countAdmins(): number {
  * hand). `rule` is why the rules give that role. A local user with the same email becomes
  * that user: the provider vouched for the address.
  */
-export function upsertExternalUser(input: { email: string; name: string | null; source: 'oidc' | 'proxy'; role: UserRole; rule?: string }): User {
-	const existing = findUserByEmail(input.email);
+export function upsertExternalUser(input: { email: string; name: string | null; source: 'oidc' | 'proxy'; role: UserRole; rule?: string; subject?: string }): User {
+	// The linked identity first: the same person, even with a new email at the provider.
+	const bySubject = input.subject ? findUserBySsoSubject(input.subject) : undefined;
+	if (bySubject && bySubject.email.toLowerCase() !== input.email.trim().toLowerCase()) {
+		const taken = findUserByEmail(input.email);
+		if (taken && taken.id !== bySubject.id) throw new BadRequest(`Your email at the provider is now ${input.email}, which another Orbital user has. An admin can sort it out under Sign-in & users.`);
+		updateUser(bySubject.id, { email: input.email });
+	}
+	const existing = bySubject ?? findUserByEmail(input.email);
+	if (existing && input.subject && !bySubject) {
+		// The same email, signed in through SSO: link it, unless it's linked to someone else's.
+		if (existing.ssoLinked) throw new BadRequest(`${input.email} is linked to another single sign-on account in Orbital. An admin can unlink it under Sign-in & users.`);
+		linkSso(existing.id, input.subject);
+	}
 	if (existing) {
 		if (input.name && input.name !== existing.name) updateUser(existing.id, { name: input.name });
 		if (existing.source !== 'local') {
@@ -406,8 +425,8 @@ export function upsertExternalUser(input: { email: string; name: string | null; 
 	const id = randomUUID();
 	// No password: an empty hash never verifies.
 	db()
-		.prepare('INSERT INTO users (id, email, name, password_hash, role, source, role_rule, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-		.run(id, input.email.trim(), input.name, '', input.role, input.source, `${input.role}, by ${input.rule ?? 'the sign-in rules'}`, now());
+		.prepare('INSERT INTO users (id, email, name, password_hash, role, source, role_rule, sso_subject, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+		.run(id, input.email.trim(), input.name, '', input.role, input.source, `${input.role}, by ${input.rule ?? 'the sign-in rules'}`, input.subject ?? null, now());
 	return getUser(id)!;
 }
 
@@ -461,6 +480,21 @@ export function countUsers(): number {
 export function findUserByEmail(email: string): User | undefined {
 	const r = db().prepare('SELECT * FROM users WHERE email = ?').get(email.trim()) as Row | undefined;
 	return r ? toUser(r) : undefined;
+}
+
+export function findUserBySsoSubject(subject: string): User | undefined {
+	const r = db().prepare('SELECT * FROM users WHERE sso_subject = ?').get(subject) as Row | undefined;
+	return r ? toUser(r) : undefined;
+}
+
+/** Links a single sign-on identity to a user; null unlinks it. */
+export function linkSso(userId: string, subject: string | null) {
+	db().prepare('UPDATE users SET sso_subject = ? WHERE id = ?').run(subject, userId);
+}
+
+/** Lasting admins who can sign in with a password: the way in when single sign-on is down. */
+export function countPasswordAdmins(): number {
+	return (db().prepare(`SELECT COUNT(*) AS n FROM users WHERE role = 'admin' AND password_hash != ''`).get() as { n: number }).n;
 }
 
 export function getPasswordHash(userId: string): string | undefined {

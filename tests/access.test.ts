@@ -149,3 +149,23 @@ test('a role for a while: higher only, and it ends on its own', () => {
 	assert.equal(store.getUser(u.id)!.role, 'member', 'never lower than their own role');
 	assert.equal(deny({ id: u.id, role: 'viewer' }, 'POST', '/api/access-request'), null, 'anyone may ask');
 });
+
+test('single sign-on links by the provider’s ID: a new email there is the same person', () => {
+	const sub = 'https://idp.ironclad.com#00u1abc';
+	const u = store.upsertExternalUser({ email: 'sam@ironclad.com', name: 'Sam', source: 'oidc', role: 'member', subject: sub });
+	assert.equal(u.ssoLinked, true);
+	assert.equal(u.hasPassword, false);
+	const renamed = store.upsertExternalUser({ email: 'sam.lee@ironclad.com', name: 'Sam', source: 'oidc', role: 'member', subject: sub });
+	assert.equal(renamed.id, u.id, 'the same user');
+	assert.equal(renamed.email, 'sam.lee@ironclad.com', 'with the email the provider has now');
+
+	// A password account signing in with SSO under the same email: linked, and keeps its password.
+	const local = store.createUser({ email: 'ops@ironclad.com', passwordHash: 'x' });
+	const linked = store.upsertExternalUser({ email: 'ops@ironclad.com', name: null, source: 'oidc', role: 'member', subject: 'https://idp.ironclad.com#00u2' });
+	assert.equal(linked.id, local.id);
+	assert.deepEqual([linked.hasPassword, linked.ssoLinked], [true, true]);
+	// Another SSO identity with that email doesn't take it over.
+	assert.throws(() => store.upsertExternalUser({ email: 'ops@ironclad.com', name: null, source: 'oidc', role: 'member', subject: 'https://idp.ironclad.com#00u3' }), /linked to another/);
+	// Nor can a renamed identity take an email someone else has.
+	assert.throws(() => store.upsertExternalUser({ email: 'ops@ironclad.com', name: null, source: 'oidc', role: 'member', subject: sub }), /another Orbital user/);
+});

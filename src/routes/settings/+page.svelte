@@ -10,7 +10,7 @@
 	import ModelPicker from '#lib/components/ModelPicker.svelte';
 	import { api, errorMessage } from '#lib/client/api.ts';
 	import { ago } from '#lib/client/format.ts';
-	import { toast } from '#lib/client/state.svelte.ts';
+	import { confirmAction, toast } from '#lib/client/state.svelte.ts';
 	import { PERMISSION_MODES, type Settings } from '#lib/types.ts';
 	import type { PageProps } from './$types';
 
@@ -42,6 +42,11 @@
 	// Docker and the session image: the organization's, for admins.
 	onMount(() => {
 		if (data.admin) void loadStatus();
+		// Back from linking single sign-on.
+		if (new URLSearchParams(location.search).get('sso') === 'linked') {
+			toast('success', 'Linked your single sign-on', 'You can sign in with it from now on.');
+			history.replaceState(history.state, '', location.pathname + location.hash);
+		}
 	});
 
 	// A GitHub App's client secret: sent only when typed, never shown again.
@@ -80,6 +85,17 @@
 			toast('error', "Couldn't pull the image", errorMessage(err));
 		}
 		pulling = false;
+	}
+
+	async function unlinkSso() {
+		const ok = await confirmAction({ title: 'Unlink single sign-on?', body: 'You sign in with your password from then on. Signing in with SSO again links it back.', confirmLabel: 'Unlink' });
+		if (!ok) return;
+		try {
+			await api.put('/api/account', { unlinkSso: true });
+			await invalidateAll();
+		} catch (err) {
+			toast('error', "Couldn't unlink it", errorMessage(err));
+		}
 	}
 
 	async function saveAccount(e: SubmitEvent) {
@@ -241,20 +257,32 @@
 					</div>
 					<div>
 						<label class="label" for="ae">Email</label>
-						<input id="ae" class="input" type="email" bind:value={email} />
+						<input id="ae" class="input" type="email" bind:value={email} disabled={data.account.ssoLinked} />
 					</div>
-					{#if data.account.source === 'local'}
+					{#if data.account.hasPassword || !data.sso.ssoOnly || data.admin}
+					{#if data.account.hasPassword}
 					<div>
 						<label class="label" for="cp">Current password</label>
 						<input id="cp" class="input" type="password" autocomplete="current-password" bind:value={currentPassword} />
 					</div>
-					<div>
-						<label class="label" for="np">New password</label>
-						<input id="np" class="input" type="password" autocomplete="new-password" placeholder="Leave empty to keep" bind:value={newPassword} />
-					</div>
-					{:else}
-						<p class="text-xs text-muted-foreground sm:col-span-2">You sign in through single sign-on, so there's no password here.</p>
 					{/if}
+					<div>
+						<label class="label" for="np">{data.account.hasPassword ? 'New password' : 'Password'}</label>
+						<input id="np" class="input" type="password" autocomplete="new-password" placeholder={data.account.hasPassword ? 'Leave empty to keep' : 'Set one to also sign in without SSO'} bind:value={newPassword} />
+					</div>
+					{/if}
+					<!-- How you sign in: a password, single sign-on, or both. -->
+					<div class="space-y-1.5 text-xs sm:col-span-2">
+						<p class="font-medium text-foreground">Sign-in methods</p>
+						<p class="flex flex-wrap items-center gap-2 text-muted-foreground">
+							<span class="badge {data.account.hasPassword ? 'badge-success' : ''}">Password: {data.account.hasPassword ? 'set' : 'none'}</span>
+							<span class="badge {data.account.ssoLinked ? 'badge-success' : ''}">Single sign-on: {data.account.ssoLinked ? 'linked' : 'not linked'}</span>
+							{#if !data.account.ssoLinked && data.sso.oidc}<a class="font-medium text-primary hover:underline" href="/api/auth/oidc/start?link=1" data-sveltekit-reload>Link my single sign-on</a>{/if}
+							{#if data.account.ssoLinked && data.account.hasPassword}<button type="button" class="font-medium text-primary hover:underline" onclick={unlinkSso}>Unlink</button>{/if}
+						</p>
+						{#if data.account.ssoLinked}<p class="text-muted-foreground">Your email follows your single sign-on account: change it there.</p>{/if}
+						{#if data.sso.ssoOnly && !data.admin}<p class="text-muted-foreground">Orbital signs people in through single sign-on, so a password isn't used for you.</p>{/if}
+					</div>
 				</div>
 				<div class="flex justify-end">
 					<button class="btn btn-secondary" disabled={savingAccount}>{#if savingAccount}<LoaderCircle class="animate-spin" />{/if}Update account</button>

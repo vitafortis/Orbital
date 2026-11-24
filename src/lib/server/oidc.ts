@@ -8,7 +8,7 @@ import { createHash } from 'node:crypto';
 import { accessFor, getAuthSettings, oidcClientSecret, whyRole } from './auth-config.ts';
 import { randomToken } from './crypto.ts';
 import { BadRequest } from './http.ts';
-import { upsertExternalUser } from './store.ts';
+import { findUserBySsoSubject, getUser, linkSso, upsertExternalUser } from './store.ts';
 import type { User } from '#lib/types.ts';
 
 type Discovery = {
@@ -42,7 +42,8 @@ export async function discover(issuer: string, fresh = false): Promise<Discovery
 /** Where the provider sends people back; register it with the provider. */
 export const callbackUrl = (base: string) => `${base.replace(/\/+$/, '')}/api/auth/oidc/callback`;
 
-type Pending = { verifier: string; nonce: string; redirectUri: string; next: string; expires: number };
+/** `link`: a signed-in user linking their SSO identity to their Orbital user, not signing in. */
+type Pending = { verifier: string; nonce: string; redirectUri: string; next: string; expires: number; link: string | null };
 const pending = new Map<string, Pending>();
 
 /** Holds the sign-in's state, binding the callback to the browser that started it. */
@@ -51,7 +52,7 @@ export const STATE_COOKIE = 'orb_oidc';
 const b64url = (b: Buffer) => b.toString('base64url');
 
 /** The provider's sign-in URL; `state` also goes in a cookie so only this browser can finish. */
-export async function startSignIn(base: string, next: string): Promise<{ url: string; state: string }> {
+export async function startSignIn(base: string, next: string, link: string | null = null): Promise<{ url: string; state: string }> {
 	const s = getAuthSettings();
 	if (!s.oidc.enabled || !s.oidc.issuer || !s.oidc.clientId) throw new BadRequest('Single sign-on is not set up');
 	const doc = await discover(s.oidc.issuer);
@@ -61,7 +62,7 @@ export async function startSignIn(base: string, next: string): Promise<{ url: st
 	const verifier = randomToken(48);
 	const nonce = randomToken(24);
 	const redirectUri = callbackUrl(base);
-	pending.set(state, { verifier, nonce, redirectUri, next, expires: now + 10 * 60_000 });
+	pending.set(state, { verifier, nonce, redirectUri, next, expires: now + 10 * 60_000, link });
 	const url = new URL(doc.authorization_endpoint);
 	url.search = new URLSearchParams({
 		response_type: 'code',
@@ -93,8 +94,11 @@ function claim(obj: Record<string, unknown>, path: string): unknown {
 	return path.split('.').reduce<unknown>((o, k) => (o && typeof o === 'object' ? (o as Record<string, unknown>)[k] : undefined), obj);
 }
 
-/** Finishes the sign-in: exchanges the code, checks the ID token, applies the access rules. */
-export async function finishSignIn(params: URLSearchParams, cookieState: string | undefined): Promise<{ user: User; next: string }> {
+/**
+ * Finishes the sign-in: exchanges the code, checks the ID token, applies the access rules. When
+ * it was started to link SSO to `signedIn`'s user, links the identity instead (`linked`).
+ */
+export async function finishSignIn(params: URLSearchParams, cookieState: string | undefined, signedIn: string | null = null): Promise<{ user: User; next: string; linked?: boolean }> {
 	const err = params.get('error');
 	if (err) throw new BadRequest(`The provider said: ${params.get('error_description') || err}`);
 	const state = params.get('state') ?? '';
@@ -134,6 +138,15 @@ export async function finishSignIn(params: URLSearchParams, cookieState: string 
 		if (body.sub === id.sub) info = body;
 	}
 	const claims = { ...info, ...id };
+	// Who this is at the provider, whatever their email: the link to an Orbital user.
+	const subject = `${doc.issuer}#${String(id.sub)}`;
+	if (p.link) {
+		if (p.link !== signedIn) throw new BadRequest('Sign in to Orbital as yourself first, then link single sign-on from your profile.');
+		const other = findUserBySsoSubject(subject);
+		if (other && other.id !== p.link) throw new BadRequest(`That single sign-on account is already linked to ${other.email} in Orbital.`);
+		linkSso(p.link, subject);
+		return { user: getUser(p.link)!, next: p.next, linked: true };
+	}
 	const email = typeof claims.email === 'string' ? claims.email : null;
 	if (!email) throw new BadRequest('The provider sent no email address. Add the "email" scope, or map an email claim.');
 	if (claims.email_verified === false) throw new BadRequest(`${email} is not verified with the provider`);
@@ -141,5 +154,5 @@ export async function finishSignIn(params: URLSearchParams, cookieState: string 
 	const { allowed, role } = accessFor(s.access, email, groups);
 	if (!allowed) throw new BadRequest(`${email} isn't allowed to sign in to Orbital. An admin can allow it under Settings → Sign-in.`);
 	const name = typeof claims.name === 'string' ? claims.name : typeof claims.preferred_username === 'string' ? claims.preferred_username : null;
-	return { user: upsertExternalUser({ email, name, source: 'oidc', role, rule: whyRole(s.access, email, groups) }), next: p.next };
+	return { user: upsertExternalUser({ email, name, source: 'oidc', role, rule: whyRole(s.access, email, groups), subject }), next: p.next };
 }

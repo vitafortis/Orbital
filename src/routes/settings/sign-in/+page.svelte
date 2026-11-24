@@ -4,6 +4,7 @@
 	import { CircleAlert, CircleCheck, Copy, KeyRound, LoaderCircle, Network, Save, ShieldCheck, Trash2, Users } from '@lucide/svelte';
 	import SettingsTabs from '#lib/components/SettingsTabs.svelte';
 	import Switch from '#lib/components/Switch.svelte';
+	import Dialog from '#lib/components/Dialog.svelte';
 	import { api, errorMessage } from '#lib/client/api.ts';
 	import { copyText } from '#lib/client/clipboard.ts';
 	import { ago } from '#lib/client/format.ts';
@@ -131,7 +132,31 @@
 		}
 	}
 
-	const SOURCE: Record<User['source'], string> = { local: 'Password', oidc: 'SSO', proxy: 'Reverse proxy' };
+	// ── Someone's email and sign-in methods ──
+	let methodsOf = $state<User | null>(null);
+	let methodsOpen = $state(false);
+	let mEmail = $state('');
+	let mPassword = $state('');
+	let mError = $state('');
+	function openMethods(u: User) {
+		methodsOf = u;
+		mEmail = u.email;
+		mPassword = '';
+		mError = '';
+		methodsOpen = true;
+	}
+	async function methods(change: Record<string, unknown>, done: string) {
+		if (!methodsOf) return;
+		mError = '';
+		try {
+			methodsOf = await api.patch<User>(`/api/users/${methodsOf.id}`, change);
+			mPassword = '';
+			toast('success', done);
+			await invalidateAll();
+		} catch (err) {
+			mError = errorMessage(err);
+		}
+	}
 
 	const PROVIDERS = [
 		{ name: 'Authentik', issuer: 'https://auth.example.com/application/o/orbital/' },
@@ -174,8 +199,8 @@
 				<span>
 					<span class="flex items-center gap-2 text-[0.8125rem] font-medium"><KeyRound class="size-4 text-muted-foreground" />Password sign-in</span>
 					<span class="mt-0.5 block text-xs text-muted-foreground">
-						The email and password form on the sign-in page. With it hidden, the local admin can still sign in at
-						<code class="font-mono">/login?local</code>, for when single sign-on is down.
+						The email and password form on the sign-in page. Off, with single sign-on on: everyone signs in through SSO, and only admins with a password can sign in at
+						<code class="font-mono">/login?local</code>, for when single sign-on is down. Everyone else's passwords stop working.
 					</span>
 				</span>
 				<Switch bind:checked={form.passwordForm} disabled={!form.required} label="Password sign-in" />
@@ -390,7 +415,10 @@
 						<span class="grid size-8 shrink-0 place-items-center rounded-full bg-primary-soft text-xs font-semibold text-primary uppercase">{(u.name ?? u.email).slice(0, 1)}</span>
 						<div class="min-w-0 flex-1 basis-52">
 							<p class="flex flex-wrap items-center gap-2 text-[0.8125rem] font-medium">
-								{u.name ?? u.email}{#if u.id === data.me}<span class="badge">You</span>{/if}<span class="badge">{SOURCE[u.source]}</span>
+								{u.name ?? u.email}{#if u.id === data.me}<span class="badge">You</span>{/if}
+								{#if u.hasPassword}<span class="badge" title="Signs in with a password">Password</span>{/if}
+								{#if u.ssoLinked}<span class="badge" title="Signs in with single sign-on">SSO</span>{:else if u.source === 'proxy'}<span class="badge">Reverse proxy</span>{/if}
+								{#if !u.hasPassword && !u.ssoLinked && u.source !== 'proxy'}<span class="badge badge-warning" title="They come back linked at their next SSO sign-in">No sign-in linked</span>{/if}
 							</p>
 							<p class="truncate text-xs text-muted-foreground">{[u.name ? u.email : null, u.lastLoginAt ? `signed in ${ago(u.lastLoginAt)}` : 'never signed in'].filter(Boolean).join(' · ')}</p>
 							<!-- Why they have the role they have: by hand, or which sign-in rule. -->
@@ -429,6 +457,7 @@
 								<option value="member">Member</option>
 								<option value="viewer">Viewer</option>
 							</select>
+							<button type="button" class="btn btn-ghost btn-icon btn-sm" title="Email and sign-in methods" onclick={() => openMethods(u)}><KeyRound /></button>
 							<button type="button" class="btn btn-ghost btn-icon btn-sm hover:text-danger" title="Remove" disabled={u.id === data.me} onclick={() => removeUser(u)}><Trash2 /></button>
 						</div>
 					</div>
@@ -438,3 +467,39 @@
 		</section>
 	</form>
 </div>
+
+<Dialog bind:open={methodsOpen} title={methodsOf ? `${methodsOf.name ?? methodsOf.email}: sign-in` : ''} description="Their email, and the ways they can sign in. Nobody is left without one." width="max-w-lg">
+	{#if methodsOf}
+		{@const m = methodsOf}
+		<div class="space-y-5 text-[0.8125rem]">
+			<form class="space-y-1.5" onsubmit={(e) => (e.preventDefault(), methods({ email: mEmail }, 'Saved the email'))}>
+				<label class="label" for="m-email">Email</label>
+				<div class="flex gap-2">
+					<input id="m-email" class="input" type="email" bind:value={mEmail} />
+					<button class="btn btn-secondary shrink-0" disabled={mEmail.trim() === m.email}>Save</button>
+				</div>
+				{#if m.ssoLinked}<p class="text-xs text-muted-foreground">Linked to single sign-on: their next SSO sign-in sets it to the provider's email again.</p>{:else}<p class="text-xs text-muted-foreground">To link someone whose SSO email differs, set it here to their SSO email: their next SSO sign-in links them. Or they link it from their profile.</p>{/if}
+			</form>
+
+			<div class="space-y-1.5">
+				<p class="flex items-center justify-between gap-3"><span class="font-medium">Password</span><span class="badge {m.hasPassword ? 'badge-success' : ''}">{m.hasPassword ? 'Set' : 'None'}</span></p>
+				<form class="flex gap-2" onsubmit={(e) => (e.preventDefault(), methods({ password: mPassword }, m.hasPassword ? 'Set a new password: they were signed out' : 'They can sign in with a password too'))}>
+					<input class="input" type="password" autocomplete="new-password" placeholder={m.hasPassword ? 'A new password (8+ characters)' : 'Give them a password (8+ characters)'} bind:value={mPassword} aria-label="Password" />
+					<button class="btn btn-secondary shrink-0" disabled={mPassword.length < 8}>Set</button>
+				</form>
+				{#if m.hasPassword}<button type="button" class="text-xs font-medium text-danger hover:underline" onclick={() => methods({ removePassword: true }, 'Removed their password')}>Remove their password</button>{/if}
+			</div>
+
+			<div class="space-y-1.5">
+				<p class="flex items-center justify-between gap-3"><span class="font-medium">Single sign-on</span><span class="badge {m.ssoLinked ? 'badge-success' : ''}">{m.ssoLinked ? 'Linked' : 'Not linked'}</span></p>
+				<p class="text-xs text-muted-foreground">
+					{m.ssoLinked ? 'Linked to their account at your provider (by its ID, so a new email there is still them).' : 'Links at their next SSO sign-in with this email, or from their profile with any.'}
+				</p>
+				{#if m.ssoLinked}<button type="button" class="text-xs font-medium text-danger hover:underline" onclick={() => methods({ unlinkSso: true }, 'Unlinked single sign-on')}>Unlink single sign-on</button>{/if}
+			</div>
+
+			{#if mError}<p class="rounded-lg bg-danger/10 px-3 py-2 text-danger">{mError}</p>{/if}
+		</div>
+	{/if}
+	{#snippet footer()}<button class="btn btn-ghost" onclick={() => (methodsOpen = false)}>Done</button>{/snippet}
+</Dialog>

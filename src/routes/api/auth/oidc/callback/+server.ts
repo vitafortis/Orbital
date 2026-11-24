@@ -9,8 +9,9 @@ export const GET: RequestHandler = async ({ url, cookies, locals }) => {
 	cookies.delete(STATE_COOKIE, { path: '/api/auth/oidc' });
 	let target: string;
 	try {
-		const { user, next } = await finishSignIn(url.searchParams, state);
-		startSession(cookies, user.id, locals.secure);
+		const { user, next, linked } = await finishSignIn(url.searchParams, state, locals.user?.id ?? null);
+		// Linking keeps the sign-in they already have.
+		if (!linked) startSession(cookies, user.id, locals.secure);
 		target = next;
 	} catch (err) {
 		const msg = err instanceof BadRequest ? err.message : 'Single sign-on failed';
