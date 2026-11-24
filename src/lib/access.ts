@@ -20,7 +20,7 @@ export function canControl(who: Who, s: Pick<Session, 'ownerId'>): boolean {
 export const canStartSessions = (who: Who) => who?.role === 'admin' || who?.role === 'member';
 
 /** Changes anyone signed in may make to their own things. */
-const OWN = [/^\/api\/auth\//, /^\/api\/account$/];
+const OWN = [/^\/api\/auth\//, /^\/api\/account$/, /^\/api\/access-request$/];
 /** Changes a member may make (besides their own sessions). */
 const MEMBER = [/^\/api\/sessions$/, /^\/api\/notion\/connect$/, /^\/api\/github\/repos$/];
 

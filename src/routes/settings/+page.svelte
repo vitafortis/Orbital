@@ -2,6 +2,8 @@
 	import { onMount, untrack } from 'svelte';
 	import { invalidateAll } from '$app/navigation';
 	import { Box, CircleCheck, CircleX, Container, Download, HardDrive, LoaderCircle, Save } from '@lucide/svelte';
+	import AskAccess from '#lib/components/AskAccess.svelte';
+	import { ROLE_LABEL } from '#lib/access.ts';
 	import BrandIcon from '#lib/components/BrandIcon.svelte';
 	import SettingsTabs from '#lib/components/SettingsTabs.svelte';
 	import Switch from '#lib/components/Switch.svelte';
@@ -252,6 +254,12 @@
 					<button class="btn btn-secondary" disabled={savingAccount}>{#if savingAccount}<LoaderCircle class="animate-spin" />{/if}Update account</button>
 				</div>
 			</form>
+			{#if !data.viewer?.admin || data.viewer.tempUntil}
+				<div class="card flex flex-wrap items-center gap-3 p-5 text-[0.8125rem]">
+					<p class="font-medium">Your role: {ROLE_LABEL[data.viewer?.role ?? 'viewer']}</p>
+					<div class="text-xs text-muted-foreground"><AskAccess /></div>
+				</div>
+			{/if}
 		{/if}
 	</div>
 </div>
