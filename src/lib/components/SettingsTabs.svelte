@@ -5,12 +5,18 @@
 
 	/** Settings' header: one title for every tab, what this tab is for, and the tabs. */
 	let { admin, description, actions }: { admin: boolean; description: string; actions?: Snippet } = $props();
+	// Members: their own accounts and their profile; viewers (no sessions of their own) just the
+	// profile. Admins: the organization's settings too.
 	const tabs = $derived([
-		{ href: '/settings/accounts', label: 'Accounts' },
-		{ href: '/settings/library', label: 'Library' },
-		{ href: '/settings/automations', label: 'Automations' },
-		{ href: '/settings', label: 'General' },
-		...(admin ? [{ href: '/settings/sign-in', label: 'Sign-in & users' }] : [])
+		...(page.data.viewer?.role === 'viewer' ? [] : [{ href: '/settings/accounts', label: 'Accounts' }]),
+		...(admin
+			? [
+					{ href: '/settings/library', label: 'Library' },
+					{ href: '/settings/automations', label: 'Automations' },
+					{ href: '/settings', label: 'General' },
+					{ href: '/settings/sign-in', label: 'Sign-in & users' }
+				]
+			: [{ href: '/settings', label: 'Your profile' }])
 	]);
 	const active = (href: string) => (href === '/settings' ? page.url.pathname === href : page.url.pathname.startsWith(href));
 </script>

@@ -204,6 +204,11 @@ function migrate(h: DatabaseSync) {
 	// Everyone before sign-in settings existed was a local admin.
 	if (!userCols.has('role')) h.exec(`ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'admin'`);
 	if (!userCols.has('source')) h.exec(`ALTER TABLE users ADD COLUMN source TEXT NOT NULL DEFAULT 'local'`);
+	for (const t of ['claude_accounts', 'github_accounts']) {
+		const c = new Set((h.prepare(`SELECT name FROM pragma_table_info('${t}')`).all() as { name: string }[]).map((x) => x.name));
+		// No owner: the organization's, as everything was before people had their own.
+		if (!c.has('owner_id')) h.exec(`ALTER TABLE ${t} ADD COLUMN owner_id TEXT`);
+	}
 	const ruleCols = new Set((h.prepare(`SELECT name FROM pragma_table_info('linear_rules')`).all() as { name: string }[]).map((c) => c.name));
 	if (!ruleCols.has('profile_id')) h.exec('ALTER TABLE linear_rules ADD COLUMN profile_id TEXT');
 	add('aws_profiles', `TEXT NOT NULL DEFAULT '[]'`);
@@ -465,6 +470,7 @@ function toAccount(r: Row): ModelAccount {
 		plan: (r.plan as string) ?? null,
 		status: (r.status as ModelAccount['status']) ?? 'unknown',
 		checkedAt: (r.checked_at as string) ?? null,
+		ownerId: (r.owner_id as string) ?? null,
 		createdAt: r.created_at as string
 	};
 }
@@ -486,13 +492,14 @@ export function getAccountSecrets(id: string): Record<string, string> {
 const sealSecrets = (id: string, secrets: Record<string, string>) =>
 	Object.keys(secrets).length ? encrypt(JSON.stringify(secrets), `claude:${id}`) : null;
 
-export function createAccount(input: { name: string; kind: AccountKind; config: Record<string, string>; secrets: Record<string, string> }): ModelAccount {
+/** `ownerId`: one person's own; null for the organization's. */
+export function createAccount(input: { name: string; kind: AccountKind; config: Record<string, string>; secrets: Record<string, string>; ownerId?: string | null }): ModelAccount {
 	const id = randomUUID();
 	// Sign-in accounts start signed out; the others are checked after saving.
 	const status = ACCOUNT_KINDS[input.kind].signIn ? 'signed_out' : 'unknown';
 	db()
-		.prepare('INSERT INTO claude_accounts (id, name, kind, config, secret, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
-		.run(id, input.name, input.kind, JSON.stringify(input.config), sealSecrets(id, input.secrets), status, now());
+		.prepare('INSERT INTO claude_accounts (id, name, kind, config, secret, status, owner_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+		.run(id, input.name, input.kind, JSON.stringify(input.config), sealSecrets(id, input.secrets), status, input.ownerId ?? null, now());
 	return getAccount(id)!;
 }
 
@@ -533,6 +540,7 @@ function toGithubAccount(r: Row): GithubAccount {
 		renews: !!r.renewal,
 		renewError: (r.renew_error as string) ?? null,
 		permissions: r.permissions ? (JSON.parse(r.permissions as string) as Record<string, string>) : null,
+		ownerId: (r.owner_id as string) ?? null,
 		createdAt: r.created_at as string
 	};
 }
@@ -615,11 +623,12 @@ export type GithubAccountInput = {
  * (which replaces the last). `replace` overwrites that connection with whatever user the
  * new token is for, keeping its id, so sessions and automations using it keep it.
  */
-export function upsertGithubAccount(input: GithubAccountInput, opts: { label?: string | null; replace?: string } = {}): GithubAccount {
+export function upsertGithubAccount(input: GithubAccountInput, opts: { label?: string | null; replace?: string; ownerId?: string | null } = {}): GithubAccount {
 	let id = opts.replace;
 	if (!id) {
 		const app = input.renewal?.kind === 'app' ? input.renewal : null;
-		const same = (db().prepare('SELECT id, kind FROM github_accounts WHERE login = ? COLLATE NOCASE').all(input.login) as { id: string; kind: string }[]).find((r) => {
+		// Only among the same owner's: someone else's sign-in as the same login stays theirs.
+		const same = (db().prepare('SELECT id, kind FROM github_accounts WHERE login = ? COLLATE NOCASE AND owner_id IS ?').all(input.login, opts.ownerId ?? null) as { id: string; kind: string }[]).find((r) => {
 			// An app installation is the same connection again; tokens change every hour.
 			if (app) {
 				const had = r.kind === 'app' ? getGithubRenewal(r.id) : null;
@@ -642,10 +651,10 @@ export function upsertGithubAccount(input: GithubAccountInput, opts: { label?: s
 	} else {
 		db()
 			.prepare(
-				`INSERT INTO github_accounts (id, label, login, name, avatar_url, kind, secret, scopes, orgs, git_name, git_email, created_at)
-				 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+				`INSERT INTO github_accounts (id, label, login, name, avatar_url, kind, secret, scopes, orgs, git_name, git_email, owner_id, created_at)
+				 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 			)
-			.run(id, opts.label ?? null, input.login, input.name, input.avatarUrl, input.kind, secret, input.scopes, JSON.stringify(input.orgs), input.gitName, input.gitEmail, now());
+			.run(id, opts.label ?? null, input.login, input.name, input.avatarUrl, input.kind, secret, input.scopes, JSON.stringify(input.orgs), input.gitName, input.gitEmail, opts.ownerId ?? null, now());
 	}
 	setGithubToken(id, input.token, input.expiresAt ?? null, input.renewal ?? null);
 	return getGithubAccount(id)!;

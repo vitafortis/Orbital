@@ -24,11 +24,13 @@
 		Send,
 		RefreshCw,
 		Trash2,
-		KeyRound
+		KeyRound,
+		User
 	} from '@lucide/svelte';
 	import AwsAccounts from '#lib/components/AwsAccounts.svelte';
 	import AwsProfilePicker from '#lib/components/AwsProfilePicker.svelte';
 	import Dialog from '#lib/components/Dialog.svelte';
+	import MyNotion from '#lib/components/MyNotion.svelte';
 	import GettingStarted from '#lib/components/GettingStarted.svelte';
 	import EmptyState from '#lib/components/EmptyState.svelte';
 	import ModelPicker from '#lib/components/ModelPicker.svelte';
@@ -55,8 +57,18 @@
 
 	// ── Model accounts ──────────────────────────────────────────────────
 
-	const GROUPS = [...new Set(Object.values(ACCOUNT_KINDS).map((k) => k.group))];
-	const kindsIn = (g: string) => (Object.entries(ACCOUNT_KINDS) as [AccountKind, KindSpec][]).filter(([, k]) => k.group === g);
+	const me = $derived(data.viewer?.id ?? null);
+	const admin = $derived(data.viewer?.admin ?? false);
+	// Yours: sign-ins to your own plans, for sessions you start. The organization's: admins'.
+	const myAccounts = $derived(data.accounts.filter((a) => a.ownerId && a.ownerId === me));
+	const orgAccounts = $derived(data.accounts.filter((a) => !a.ownerId));
+	const myGithub = $derived(data.githubAccounts.filter((a) => a.ownerId && a.ownerId === me));
+	const orgGithub = $derived(data.githubAccounts.filter((a) => !a.ownerId));
+
+	/** Adding your own (only sign-ins to your own plan) or the organization's. */
+	let personal = $state(false);
+	const GROUPS = $derived([...new Set(Object.values(ACCOUNT_KINDS).filter((k) => !personal || k.personal).map((k) => k.group))]);
+	const kindsIn = (g: string) => (Object.entries(ACCOUNT_KINDS) as [AccountKind, KindSpec][]).filter(([, k]) => k.group === g && (!personal || k.personal));
 
 	// The account dialog adds one (any kind) or edits one (its kind is fixed).
 	let editing = $state<ModelAccount | null>(null);
@@ -84,10 +96,11 @@
 		return Object.fromEntries(ACCOUNT_KINDS[k].fields.map((f) => [f.key, f.secret ? '' : (config[f.key] ?? f.default ?? '')]));
 	}
 
-	function openAdd() {
+	function openAdd(own = false) {
 		editing = null;
+		personal = own;
 		kind = 'subscription';
-		name = data.accounts.length ? '' : 'Personal';
+		name = own ? 'Mine' : orgAccounts.length ? '' : 'Organization';
 		fields = defaultsFor(kind);
 		formError = '';
 		step = 'pick';
@@ -125,7 +138,7 @@
 				await invalidateAll();
 				if (!ACCOUNT_KINDS[a.kind].signIn) void check(a);
 			} else {
-				const a = await api.post<ModelAccount>('/api/model-accounts', { kind, name: name || spec.label, fields });
+				const a = await api.post<ModelAccount>('/api/model-accounts', { kind, name: name || spec.label, fields, personal });
 				adding = false;
 				await invalidateAll();
 				if (ACCOUNT_KINDS[a.kind].signIn) void startLogin(a);
@@ -312,7 +325,7 @@
 		profileEditing = p ?? null;
 		pf = p
 			? { name: p.name, accountId: p.accountId, model: p.model ?? '', permissionMode: p.permissionMode, repos: p.repos.join('\n'), awsProfileIds: p.awsProfileIds.filter((id) => data.awsProfiles.some((a) => a.id === id)) }
-			: { name: '', accountId: data.accounts[0]?.id ?? '', model: '', permissionMode: 'default', repos: '', awsProfileIds: [] };
+			: { name: '', accountId: orgAccounts[0]?.id ?? '', model: '', permissionMode: 'default', repos: '', awsProfileIds: [] };
 		profileError = '';
 		profileOpen = true;
 	}
@@ -389,8 +402,11 @@
 	let tokenLabel = $state('');
 	let tokenError = $state('');
 
-	function openToken(a: GithubAccount | null) {
+	/** Adding a token: your own, or the organization's. */
+	let tokenPersonal = $state(false);
+	function openToken(a: GithubAccount | null, own = false) {
 		editingGithub = a;
+		tokenPersonal = own;
 		tokenLabel = a?.label ?? '';
 		token = '';
 		tokenError = '';
@@ -408,7 +424,7 @@
 			const label = tokenLabel.trim() || null;
 			const a = editingGithub
 				? await api.patch<GithubAccount>(`/api/github-accounts/${editingGithub.id}`, { label, ...(token.trim() ? { token } : {}) })
-				: await api.post<GithubAccount>('/api/github-accounts', { token, label });
+				: await api.post<GithubAccount>('/api/github-accounts', { token, label, personal: tokenPersonal });
 			addingToken = false;
 			token = '';
 			if (editingGithub) toast('success', `Saved ${githubLabel(a)}`);
@@ -420,9 +436,10 @@
 		saving = false;
 	}
 
-	async function startDevice() {
+	/** "Sign in with GitHub": your own connection, or (an admin's choice) the organization's. */
+	async function startDevice(organization = false) {
 		try {
-			device = await api.post('/api/github/device');
+			device = await api.post('/api/github/device', { organization });
 			poll();
 		} catch (err) {
 			toast('error', "Couldn't start GitHub sign-in", errorMessage(err));
@@ -504,6 +521,22 @@
 		}
 	}
 
+	async function removeOthers(o: (typeof data.othersOwn)[number]) {
+		const ok = await confirmAction({
+			title: `Remove ${o.owner}'s ${o.name}?`,
+			body: `It's ${o.owner}'s own ${o.what === 'model' ? 'model sign-in' : 'GitHub connection'}. Their sessions on it stop working until they add another. They're not told.`,
+			confirmLabel: 'Remove',
+			danger: true
+		});
+		if (!ok) return;
+		try {
+			await api.del(o.what === 'model' ? `/api/model-accounts/${o.id}` : `/api/github-accounts/${o.id}`);
+			await invalidateAll();
+		} catch (err) {
+			toast('error', "Couldn't remove it", errorMessage(err));
+		}
+	}
+
 	async function removeGithub(a: GithubAccount) {
 		const ok = await confirmAction({
 			title: `Disconnect ${githubLabel(a)}?`,
@@ -519,6 +552,65 @@
 
 <svelte:head><title>Accounts · Orbital</title></svelte:head>
 
+{#snippet modelRow(a: ModelAccount)}
+	<div class="flex flex-wrap items-center gap-3 px-4 py-3">
+		<span class="grid size-9 shrink-0 place-items-center rounded-full border border-border bg-surface text-foreground max-sm:hidden">
+			{#if KIND_BRAND[a.kind]}<BrandIcon brand={KIND_BRAND[a.kind]!} class="size-[1.125rem]" />{:else}<Network class="size-4 text-muted-foreground" />{/if}
+		</span>
+		<div class="min-w-0 flex-1 basis-52">
+			<p class="flex flex-wrap items-center gap-2 text-[0.8125rem] font-medium">{a.name} <AgentBadge agent={a.agent} /> {@render statusBadge(a)}</p>
+			<p class="truncate text-xs text-muted-foreground">{details(a)}</p>
+		</div>
+		<div class="ml-auto flex items-center gap-1.5">
+			{#if ACCOUNT_KINDS[a.kind].signIn}
+				<button class="btn btn-sm {a.status === 'signed_in' ? 'btn-ghost' : 'btn-primary'}" onclick={() => startLogin(a)}
+					><LogIn />{signingIn.has(a.id) ? 'Continue sign-in' : a.status === 'signed_in' ? 'Sign in again' : 'Sign in'}</button
+				>
+			{/if}
+			<button class="btn btn-ghost btn-sm" disabled={checking === a.id} onclick={() => check(a)}>
+				{#if checking === a.id}<LoaderCircle class="animate-spin" />{:else}<RefreshCw />{/if}Check
+			</button>
+			<button class="btn btn-ghost btn-icon btn-sm" title="Edit" onclick={() => openEdit(a)}><Pencil /></button>
+			<button class="btn btn-ghost btn-icon btn-sm hover:text-danger" title="Remove" onclick={() => removeAccount(a)}><Trash2 /></button>
+		</div>
+	</div>
+{/snippet}
+
+{#snippet githubRow(a: GithubAccount)}
+	{@const k = githubKind(a)}
+	{@const acc = githubAccess(a)}
+	<div class="flex flex-wrap items-center gap-3 px-4 py-3">
+		{#if a.avatarUrl}<img src={a.avatarUrl} alt="" class="size-9 shrink-0 rounded-full border border-border" />{/if}
+		<div class="min-w-0 flex-1 basis-52">
+			<p class="flex flex-wrap items-center gap-2 text-[0.8125rem] font-medium">
+				{a.label ?? a.login}<span class="font-normal text-muted-foreground">{a.label ? a.login : a.name}</span>
+				<span class="badge {k.org ? 'badge-primary' : ''}" title={k.org ? `Made for ${k.org}: it reaches only that organization's repos` : a.kind === 'oauth' || a.scopes !== null ? "Reaches whatever its user can" : k.label === 'Personal token' ? `Reaches only ${a.login}'s own repos` : 'Fine-grained: whose it is shows once it lists a repo'}>{#if k.org}<Building2 />{/if}{k.label}</span>
+				{#if acc}<span class="badge {acc === 'write' ? '' : 'badge-warning'}" title={a.permissions ? Object.entries(a.permissions).map(([p, v]) => `${p.replace(/_/g, ' ')}: ${v}`).join('\n') : ''}>{GITHUB_ACCESS_LABEL[acc]}</span>{/if}
+			</p>
+			<p class="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+				{#each a.orgs as o (o)}<span class="badge"><Building2 />{o}</span>{:else}<span>No organizations visible</span>{/each}
+				{#if a.scopes}<span class="font-mono text-[0.6875rem]">· {a.scopes}</span>{/if}
+			</p>
+			{#if a.renewError}
+				<p class="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-warning">
+					<CircleAlert class="size-3.5" />{a.renewError}
+					<button class="text-primary hover:underline disabled:opacity-50" disabled={renewing === a.id} onclick={() => renewNow(a)}>Try again</button>
+				</p>
+			{:else if a.renews && a.expiresAt}
+				<p class="mt-1 text-xs text-muted-foreground">Renews itself{a.kind === 'app' ? ' every hour' : ''} · this token is good until {clock(a.expiresAt)}</p>
+			{:else if a.expiresAt}
+				<p class="mt-1 text-xs text-muted-foreground">Expires {clock(a.expiresAt)} and can't renew itself: sign in again then.</p>
+			{/if}
+		</div>
+		<div class="ml-auto flex items-center gap-1">
+			<button class="btn btn-ghost btn-icon btn-sm" title="Refresh organizations" onclick={() => refreshGithub(a)}><RefreshCw /></button>
+			<button class="btn btn-ghost btn-sm" title="Ask GitHub what this token can see" onclick={() => openCheck(a)}>Check access</button>
+			<button class="btn btn-ghost btn-icon btn-sm" title="Rename or replace the token" onclick={() => openToken(a)}><Pencil /></button>
+			<button class="btn btn-ghost btn-icon btn-sm hover:text-danger" title="Disconnect" onclick={() => removeGithub(a)}><Trash2 /></button>
+		</div>
+	</div>
+{/snippet}
+
 {#snippet statusBadge(a: ModelAccount)}
 	{@const signIn = ACCOUNT_KINDS[a.kind].signIn}
 	{#if a.status === 'signed_in'}
@@ -531,64 +623,97 @@
 {/snippet}
 
 <div class="h-full overflow-y-auto">
-	<SettingsTabs admin={data.viewer?.admin ?? false} description="The models sessions run on, which repos use which, and how sessions reach GitHub and AWS." />
+	<SettingsTabs
+		admin={admin}
+		description={admin ? "Your own sign-ins, and the organization's: the models sessions run on, which repos use which, and how sessions reach GitHub and AWS." : 'Your own sign-ins, for the sessions you start. Only you see them.'}
+	/>
 
-	<!-- Two columns on wide screens (models and profiles, then GitHub and AWS), one otherwise. -->
-	<div class="grid max-w-4xl items-start gap-8 px-4 pb-12 sm:px-8 2xl:max-w-none 2xl:grid-cols-2">
+	<div class="space-y-10 px-4 pb-12 sm:px-8">
+		<!-- Yours: sign-ins to your own plans and GitHub. Only you see them; only your sessions use them. -->
+		<section id="yours" class="space-y-4">
+			<div>
+				<h2 class="flex items-center gap-2 text-base font-semibold tracking-tight"><User class="size-4 text-primary" />Yours</h2>
+				<p class="max-w-3xl text-xs text-muted-foreground">
+					Sign-ins to your own Claude, ChatGPT or Google plan, your GitHub and your Notion. Only you see them, and only sessions you start can use them{admin ? '; other admins see only that they exist' : ''}.
+				</p>
+			</div>
+			<div class="grid max-w-4xl items-start gap-6 2xl:max-w-none 2xl:grid-cols-3">
+				<div>
+					<div class="mb-2 flex items-end justify-between gap-3">
+						<h3 class="text-[0.8125rem] font-semibold">Models</h3>
+						<button class="btn btn-secondary btn-sm" onclick={() => openAdd(true)}><Plus />Add a sign-in</button>
+					</div>
+					<div class="card divide-y divide-border">
+						{#each myAccounts as a (a.id)}
+							{@render modelRow(a)}
+						{:else}
+							<p class="px-4 py-4 text-xs text-muted-foreground">None yet. Sign in to your own Claude Pro or Max plan (or ChatGPT, or Google) to run your sessions on it{orgAccounts.length || !admin ? ", instead of the organization's accounts" : ''}.</p>
+						{/each}
+					</div>
+				</div>
+				<div>
+					<div class="mb-2 flex items-end justify-between gap-3">
+						<h3 class="flex items-center gap-2 text-[0.8125rem] font-semibold"><BrandIcon brand="github" />GitHub</h3>
+						<div class="flex gap-2">
+							{#if data.deviceFlow}<button class="btn btn-secondary btn-sm" onclick={() => startDevice()}>Sign in with GitHub</button>{/if}
+							<button class="btn btn-ghost btn-sm" onclick={() => openToken(null, true)}><Plus />Token</button>
+						</div>
+					</div>
+					<div class="card divide-y divide-border">
+						{#each myGithub as a (a.id)}
+							{@render githubRow(a)}
+						{:else}
+							<p class="px-4 py-4 text-xs text-muted-foreground">None yet. {data.deviceFlow ? 'Sign in with GitHub' : 'Add a token'} so your sessions push and open pull requests as you.</p>
+						{/each}
+					</div>
+				</div>
+				<MyNotion connection={data.myNotion} />
+			</div>
+		</section>
+
+		{#if admin}
+		<!-- The organization's: for every session, profiles and automations. Admins only. -->
+		<div class="space-y-4">
+			<div>
+				<h2 class="flex items-center gap-2 text-base font-semibold tracking-tight"><Building2 class="size-4 text-primary" />Organization</h2>
+				<p class="max-w-3xl text-xs text-muted-foreground">Shared by everyone's sessions, profiles and automations. Only admins see these settings; members pick them by name when they start a session.</p>
+			</div>
+		<!-- Two columns on wide screens (models and profiles, then GitHub and AWS), one otherwise. -->
+		<div class="grid max-w-4xl items-start gap-8 2xl:max-w-none 2xl:grid-cols-2">
 		{#if !shown.list.length}
 			<div class="2xl:col-span-2">
-				<GettingStarted compact accounts={data.accounts} signingIn={data.signingIn} githubAccounts={data.githubAccounts.length} onaddmodel={openAdd} onaddgithub={() => openToken(null)} />
+				<GettingStarted compact accounts={orgAccounts} signingIn={data.signingIn} githubAccounts={orgGithub.length} onaddmodel={() => openAdd()} onaddgithub={() => openToken(null)} />
 			</div>
 		{/if}
 
 		<section>
 			<div class="mb-3 flex items-end justify-between gap-3">
 				<div>
-					<h2 class="text-[0.9375rem] font-semibold tracking-tight">Models</h2>
+					<h3 class="text-[0.9375rem] font-semibold tracking-tight">Models</h3>
 					<p class="text-xs text-muted-foreground">Claude through Anthropic or your cloud, OpenAI through Codex CLI, Gemini through Gemini CLI. Sessions of one account share its sign-in and settings.</p>
 				</div>
-				<button class="btn {data.accounts.length ? 'btn-secondary' : 'btn-primary'} btn-sm" onclick={openAdd}><Plus />Add account</button>
+				<button class="btn {orgAccounts.length ? 'btn-secondary' : 'btn-primary'} btn-sm" onclick={() => openAdd()}><Plus />Add account</button>
 			</div>
 			<div class="card divide-y divide-border">
-				{#each data.accounts as a (a.id)}
-					<div class="flex flex-wrap items-center gap-3 px-4 py-3">
-						<span class="grid size-9 shrink-0 place-items-center rounded-full border border-border bg-surface text-foreground max-sm:hidden">
-							{#if KIND_BRAND[a.kind]}<BrandIcon brand={KIND_BRAND[a.kind]!} class="size-[1.125rem]" />{:else}<Network class="size-4 text-muted-foreground" />{/if}
-						</span>
-						<div class="min-w-0 flex-1 basis-52">
-							<p class="flex flex-wrap items-center gap-2 text-[0.8125rem] font-medium">{a.name} <AgentBadge agent={a.agent} /> {@render statusBadge(a)}</p>
-							<p class="truncate text-xs text-muted-foreground">{details(a)}</p>
-						</div>
-						<div class="ml-auto flex items-center gap-1.5">
-							{#if ACCOUNT_KINDS[a.kind].signIn}
-								<button class="btn btn-sm {a.status === 'signed_in' ? 'btn-ghost' : 'btn-primary'}" onclick={() => startLogin(a)}
-									><LogIn />{signingIn.has(a.id) ? 'Continue sign-in' : a.status === 'signed_in' ? 'Sign in again' : 'Sign in'}</button
-								>
-							{/if}
-							<button class="btn btn-ghost btn-sm" disabled={checking === a.id} onclick={() => check(a)}>
-								{#if checking === a.id}<LoaderCircle class="animate-spin" />{:else}<RefreshCw />{/if}Check
-							</button>
-							<button class="btn btn-ghost btn-icon btn-sm" title="Edit" onclick={() => openEdit(a)}><Pencil /></button>
-							<button class="btn btn-ghost btn-icon btn-sm hover:text-danger" title="Remove" onclick={() => removeAccount(a)}><Trash2 /></button>
-						</div>
-					</div>
+				{#each orgAccounts as a (a.id)}
+					{@render modelRow(a)}
 				{:else}
 					<EmptyState icon={KeyRound} title="No model accounts yet" body="Sessions run as one of these: your Claude plan or API key, Claude on your cloud, OpenAI or Gemini.">
-						{#snippet action()}<button class="btn btn-primary btn-sm" onclick={openAdd}><Plus />Add a model account</button>{/snippet}
+						{#snippet action()}<button class="btn btn-primary btn-sm" onclick={() => openAdd()}><Plus />Add a model account</button>{/snippet}
 					</EmptyState>
 				{/each}
 			</div>
 		</section>
 
 		<!-- Profiles route repos to accounts: nothing to say until there's an account. -->
-		{#if data.accounts.length}
+		{#if orgAccounts.length}
 			<section id="profiles">
 				<div class="mb-3 flex items-end justify-between gap-3">
 					<div>
-						<h2 class="text-[0.9375rem] font-semibold tracking-tight">Profiles</h2>
+						<h3 class="text-[0.9375rem] font-semibold tracking-tight">Profiles</h3>
 						<p class="text-xs text-muted-foreground">Which repos go to which model. New sessions and Linear rules pick the first profile matching the repo.</p>
 					</div>
-					<button class="btn btn-secondary btn-sm" disabled={!data.accounts.length} onclick={() => openProfile()}><Plus />Add profile</button>
+					<button class="btn btn-secondary btn-sm" disabled={!orgAccounts.length} onclick={() => openProfile()}><Plus />Add profile</button>
 				</div>
 				<div class="card divide-y divide-border">
 					{#each data.profiles as p, i (p.id)}
@@ -635,49 +760,17 @@
 		<section id="github">
 			<div class="mb-3 flex flex-wrap items-end justify-between gap-3">
 				<div>
-					<h2 class="flex items-center gap-2 text-[0.9375rem] font-semibold tracking-tight"><BrandIcon brand="github" />GitHub</h2>
-					<p class="text-xs text-muted-foreground">For listing and cloning private repos, pushing branches and opening pull requests with <code class="font-mono">gh</code>.</p>
+					<h3 class="flex items-center gap-2 text-[0.9375rem] font-semibold tracking-tight"><BrandIcon brand="github" />GitHub</h3>
+					<p class="text-xs text-muted-foreground">GitHub Apps and organization tokens, for listing and cloning private repos, pushing branches and opening pull requests with <code class="font-mono">gh</code>.</p>
 				</div>
 				<div class="flex gap-2">
-					{#if data.deviceFlow}<button class="btn btn-primary btn-sm" onclick={startDevice}><BrandIcon brand="github" class="size-4" />Sign in with GitHub</button>{/if}
 					<button class="btn btn-secondary btn-sm" onclick={openApp}><Blocks />Add a GitHub App</button>
 					<button class="btn btn-secondary btn-sm" onclick={() => openToken(null)}><Plus />Add a token</button>
 				</div>
 			</div>
 			<div class="card divide-y divide-border">
-				{#each data.githubAccounts as a (a.id)}
-					{@const k = githubKind(a)}
-					{@const acc = githubAccess(a)}
-					<div class="flex flex-wrap items-center gap-3 px-4 py-3">
-						{#if a.avatarUrl}<img src={a.avatarUrl} alt="" class="size-9 shrink-0 rounded-full border border-border" />{/if}
-						<div class="min-w-0 flex-1 basis-52">
-							<p class="flex flex-wrap items-center gap-2 text-[0.8125rem] font-medium">
-								{a.label ?? a.login}<span class="font-normal text-muted-foreground">{a.label ? a.login : a.name}</span>
-								<span class="badge {k.org ? 'badge-primary' : ''}" title={k.org ? `Made for ${k.org}: it reaches only that organization's repos` : a.kind === 'oauth' || a.scopes !== null ? "Reaches whatever its user can" : k.label === 'Personal token' ? `Reaches only ${a.login}'s own repos` : 'Fine-grained: whose it is shows once it lists a repo'}>{#if k.org}<Building2 />{/if}{k.label}</span>
-								{#if acc}<span class="badge {acc === 'write' ? '' : 'badge-warning'}" title={a.permissions ? Object.entries(a.permissions).map(([p, v]) => `${p.replace(/_/g, ' ')}: ${v}`).join('\n') : ''}>{GITHUB_ACCESS_LABEL[acc]}</span>{/if}
-							</p>
-							<p class="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
-								{#each a.orgs as o (o)}<span class="badge"><Building2 />{o}</span>{:else}<span>No organizations visible</span>{/each}
-								{#if a.scopes}<span class="font-mono text-[0.6875rem]">· {a.scopes}</span>{/if}
-							</p>
-							{#if a.renewError}
-								<p class="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-warning">
-									<CircleAlert class="size-3.5" />{a.renewError}
-									<button class="text-primary hover:underline disabled:opacity-50" disabled={renewing === a.id} onclick={() => renewNow(a)}>Try again</button>
-								</p>
-							{:else if a.renews && a.expiresAt}
-								<p class="mt-1 text-xs text-muted-foreground">Renews itself{a.kind === 'app' ? ' every hour' : ''} · this token is good until {clock(a.expiresAt)}</p>
-							{:else if a.expiresAt}
-								<p class="mt-1 text-xs text-muted-foreground">Expires {clock(a.expiresAt)} and can't renew itself: sign in again then.</p>
-							{/if}
-						</div>
-						<div class="ml-auto flex items-center gap-1">
-							<button class="btn btn-ghost btn-icon btn-sm" title="Refresh organizations" onclick={() => refreshGithub(a)}><RefreshCw /></button>
-							<button class="btn btn-ghost btn-sm" title="Ask GitHub what this token can see" onclick={() => openCheck(a)}>Check access</button>
-							<button class="btn btn-ghost btn-icon btn-sm" title="Rename or replace the token" onclick={() => openToken(a)}><Pencil /></button>
-							<button class="btn btn-ghost btn-icon btn-sm hover:text-danger" title="Disconnect" onclick={() => removeGithub(a)}><Trash2 /></button>
-						</div>
-					</div>
+				{#each orgGithub as a (a.id)}
+					{@render githubRow(a)}
 				{:else}
 					<EmptyState title="No GitHub accounts" body="Public repos work without one. Add a token for private repos, pushing and pull requests.">
 						{#snippet action()}<button class="btn btn-secondary btn-sm" onclick={() => openToken(null)}><Plus />Add a token</button>{/snippet}
@@ -686,7 +779,27 @@
 			</div>
 		</section>
 
-		<AwsAccounts logins={data.awsLogins} profiles={data.awsProfiles} admin={data.viewer?.admin ?? false} />
+		<AwsAccounts logins={data.awsLogins} profiles={data.awsProfiles} admin={admin} />
+		</div>
+
+		{#if data.othersOwn.length}
+			<section id="others">
+				<h3 class="text-[0.9375rem] font-semibold tracking-tight">People's own</h3>
+				<p class="mb-3 max-w-3xl text-xs text-muted-foreground">Sign-ins other people added for their own sessions. You can see whose they are and remove them, but not use them or see what they reach.</p>
+				<div class="card max-w-4xl divide-y divide-border">
+					{#each data.othersOwn as o (o.id)}
+						<div class="flex flex-wrap items-center gap-3 px-4 py-2.5 text-[0.8125rem]">
+							{#if o.what === 'github'}<BrandIcon brand="github" class="size-4" />{:else if KIND_BRAND[o.kind as AccountKind]}<BrandIcon brand={KIND_BRAND[o.kind as AccountKind]!} class="size-4" />{/if}
+							<span class="font-medium">{o.name}</span>
+							<span class="text-xs text-muted-foreground">{o.what === 'model' ? ACCOUNT_KINDS[o.kind as AccountKind]?.label : 'GitHub'} · {o.owner}'s · added {ago(o.createdAt)}</span>
+							<button class="btn btn-ghost btn-icon btn-sm ml-auto hover:text-danger" title="Remove" onclick={() => removeOthers(o)}><Trash2 /></button>
+						</div>
+					{/each}
+				</div>
+			</section>
+		{/if}
+		</div>
+		{/if}
 	</div>
 </div>
 
@@ -832,7 +945,7 @@
 		<div>
 			<label class="label" for="pacct">Account</label>
 			<select id="pacct" class="input" bind:value={pf.accountId} required>
-				{#each data.accounts as a (a.id)}<option value={a.id}>{a.name} · {ACCOUNT_KINDS[a.kind].label}</option>{/each}
+				{#each orgAccounts as a (a.id)}<option value={a.id}>{a.name} · {ACCOUNT_KINDS[a.kind].label}</option>{/each}
 			</select>
 		</div>
 		<div class="grid grid-cols-2 gap-3">

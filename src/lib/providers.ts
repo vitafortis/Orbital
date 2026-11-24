@@ -28,6 +28,8 @@ export type KindSpec = {
 	fields: FieldSpec[];
 	/** Signs in from a terminal in the browser instead of with a pasted secret. */
 	signIn?: boolean;
+	/** A sign-in to someone's own plan: the kinds a person can add as their own. */
+	personal?: boolean;
 	remoteControl?: boolean;
 };
 
@@ -42,6 +44,7 @@ const PINS: FieldSpec[] = [
 
 export const ACCOUNT_KINDS: Record<AccountKind, KindSpec> = {
 	subscription: {
+		personal: true,
 		agent: 'claude',
 		label: 'Claude subscription',
 		group: 'Anthropic',
@@ -51,6 +54,7 @@ export const ACCOUNT_KINDS: Record<AccountKind, KindSpec> = {
 		remoteControl: true
 	},
 	token: {
+		personal: true,
 		agent: 'claude',
 		label: 'Long-lived token',
 		group: 'Anthropic',
@@ -121,6 +125,7 @@ export const ACCOUNT_KINDS: Record<AccountKind, KindSpec> = {
 		]
 	},
 	chatgpt: {
+		personal: true,
 		agent: 'codex',
 		label: 'ChatGPT plan (Codex)',
 		group: 'OpenAI',
@@ -136,6 +141,7 @@ export const ACCOUNT_KINDS: Record<AccountKind, KindSpec> = {
 		fields: [{ key: 'apiKey', label: 'API key', secret: true, required: true, placeholder: 'sk-…' }]
 	},
 	google: {
+		personal: true,
 		agent: 'gemini',
 		label: 'Google account (Gemini)',
 		group: 'Google',

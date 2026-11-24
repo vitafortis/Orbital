@@ -29,6 +29,8 @@ export interface ModelAccount {
 	plan: string | null;
 	status: 'signed_in' | 'signed_out' | 'unknown';
 	checkedAt: string | null;
+	/** One person's own (a sign-in to their plan): only they see it and their sessions use it. Null: the organization's. */
+	ownerId: string | null;
 	createdAt: string;
 }
 
@@ -100,6 +102,8 @@ export interface GithubAccount {
 	 * classic tokens and sign-ins, which reach whatever their user can.
 	 */
 	resourceOwner: string | null;
+	/** One person's own (their GitHub sign-in or token): only they see it and their sessions use it. Null: the organization's. */
+	ownerId: string | null;
 	createdAt: string;
 }
 

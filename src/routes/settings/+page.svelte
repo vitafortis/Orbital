@@ -37,7 +37,10 @@
 	async function loadStatus() {
 		status = await api.get<Status>('/api/status');
 	}
-	onMount(loadStatus);
+	// Docker and the session image: the organization's, for admins.
+	onMount(() => {
+		if (data.admin) void loadStatus();
+	});
 
 	// A GitHub App's client secret: sent only when typed, never shown again.
 	let clientSecret = $state('');
@@ -99,9 +102,11 @@
 {/snippet}
 
 <div class="h-full overflow-y-auto">
-	<SettingsTabs admin={data.admin} description="Where sessions run, and what every session container gets." />
+	<SettingsTabs admin={data.admin} description={data.admin ? 'Where sessions run, and what every session container gets.' : 'Your name, email and password, and your role.'} />
 
 	<div class="max-w-4xl space-y-8 px-4 pt-6 pb-12 sm:px-8">
+		<!-- Where sessions run and what they get: the organization's, for admins. -->
+		{#if data.admin}
 		<section class="grid gap-3 md:grid-cols-3">
 			<div class="card p-4">
 				<p class="flex items-center gap-2 text-[0.8125rem] font-medium"><Container class="size-4 text-muted-foreground" />Docker {@render check(status?.docker.ok)}</p>
@@ -222,6 +227,7 @@
 				<button class="btn btn-primary" disabled={saving}>{#if saving}<LoaderCircle class="animate-spin" />{:else}<Save />{/if}Save</button>
 			</div>
 		</form>
+		{/if}
 
 		{#if data.account}
 			<form id="account" class="card space-y-4 p-5" onsubmit={saveAccount}>

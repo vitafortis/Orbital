@@ -6,6 +6,7 @@
 import { appendFileSync, existsSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
+import type { Who } from '#lib/access.ts';
 import { listAccounts, listAwsLogins } from '../store.ts';
 import { ensureDirs, metaDir, sessionRel } from './storage.ts';
 import type { SystemTodo, TodoItem, TodoWhere } from '#lib/types.ts';
@@ -81,11 +82,19 @@ export function setTodoDone(sessionId: string, id: string, done: boolean): TodoI
 	return readTodos(sessionId).find((t) => t.id === id);
 }
 
-/** What Orbital itself knows needs a person: signed-out model accounts, ended AWS sign-ins. */
-export function systemTodos(now = Date.now()): SystemTodo[] {
+/**
+ * What Orbital itself knows needs a person: signed-out model accounts, ended AWS sign-ins. Each
+ * goes to whoever can fix it: your own accounts to you, the organization's to admins.
+ */
+export function systemTodos(who: Who, now = Date.now()): SystemTodo[] {
 	const out: SystemTodo[] = [];
+	// Your own accounts, signed out: yours to sign in again.
 	for (const a of listAccounts()) {
-		if (a.status === 'signed_out') out.push({ id: `account:${a.id}`, title: `Sign in to ${a.name} again`, why: "Its sessions can't start the agent until it's signed in.", href: '/settings/accounts' });
+		if (a.status === 'signed_out' && a.ownerId && a.ownerId === who?.id) out.push({ id: `account:${a.id}`, title: `Sign in to your ${a.name} again`, why: "Your sessions on it can't start the agent until it's signed in.", href: '/settings/accounts#yours' });
+	}
+	if (who?.role !== 'admin') return out;
+	for (const a of listAccounts()) {
+		if (a.status === 'signed_out' && !a.ownerId) out.push({ id: `account:${a.id}`, title: `Sign in to ${a.name} again`, why: "Its sessions can't start the agent until it's signed in.", href: '/settings/accounts' });
 	}
 	for (const l of listAwsLogins()) {
 		if (!l.renewable && l.expiresAt && Date.parse(l.expiresAt) < now) {

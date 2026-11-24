@@ -1,4 +1,5 @@
 import { BadRequest, str } from './http.ts';
+import { requireOrgAccount } from './owned.ts';
 import { getAccount, type ProfileInput } from './store.ts';
 import { parseAwsProfileIds, parseModel, parsePermissionMode } from './sessions/input.ts';
 import { parsePatterns } from '#lib/profiles.ts';
@@ -8,6 +9,7 @@ export function parseProfileInput(b: Record<string, unknown>): ProfileInput {
 	const name = str(b, 'name', { required: true, max: 80 })!;
 	const accountId = str(b, 'accountId', { required: true })!;
 	const account = getAccount(accountId);
+	requireOrgAccount(account);
 	if (!account) throw new BadRequest('Pick a model account');
 	const raw = Array.isArray(b.repos) ? b.repos.filter((r) => typeof r === 'string').join('\n') : typeof b.repos === 'string' ? b.repos : '';
 	const repos = parsePatterns(raw);

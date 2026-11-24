@@ -1,9 +1,9 @@
 import type { PageServerLoad } from './$types';
 import { loginsInProgress } from '#lib/server/accounts.ts';
-import { listAccounts, listGithubAccounts } from '#lib/server/store.ts';
+import { accountsFor, githubAccountsFor } from '#lib/server/owned.ts';
 
-export const load: PageServerLoad = async () => ({
-	accounts: listAccounts().map(({ id, name, kind, status }) => ({ id, name, kind, status })),
+export const load: PageServerLoad = async ({ locals }) => ({
+	accounts: accountsFor(locals.user).map(({ id, name, kind, status }) => ({ id, name, kind, status })),
 	signingIn: await loginsInProgress(),
-	githubAccounts: listGithubAccounts().length
+	githubAccounts: githubAccountsFor(locals.user).length
 });

@@ -89,7 +89,7 @@ async function orgsOf(token: string): Promise<string[]> {
 export async function addGithubToken(
 	token: string,
 	kind: GithubAccount['kind'],
-	opts: { label?: string | null; replace?: string; expiresAt?: string | null; renewal?: GithubRenewal | null } = {}
+	opts: { label?: string | null; replace?: string; expiresAt?: string | null; renewal?: GithubRenewal | null; ownerId?: string | null } = {}
 ): Promise<GithubAccount> {
 	const t = token.trim();
 	if (!t) throw new BadRequest('Paste a token');
@@ -335,11 +335,11 @@ export function rankTokens(tokens: TokenAccess[]): TokenAccess[] {
 }
 
 /** What each token gets for the repository, best first (see rankTokens). */
-export async function repoAccess(fullName: string): Promise<{ repo: GithubRepo | null; tokens: TokenAccess[] }> {
+export async function repoAccess(fullName: string, accounts = listGithubAccounts()): Promise<{ repo: GithubRepo | null; tokens: TokenAccess[] }> {
 	if (!FULL_NAME.test(fullName)) throw new BadRequest('Enter the repository as owner/name');
 	let repo: GithubRepo | null = null;
 	const tokens = await Promise.all(
-		listGithubAccounts().map(async (account): Promise<TokenAccess> => {
+		accounts.map(async (account): Promise<TokenAccess> => {
 			const token = getGithubToken(account.id) ?? '';
 			const base = { accountId: account.id, kind: tokenKind(token), scopes: account.scopes, access: null, expires: null, sees: null, reason: null };
 			const res = await ghFetch(token, `/repos/${fullName}`).catch((err: unknown) => (err instanceof Error ? err.message : String(err)));
@@ -363,13 +363,15 @@ export async function repoAccess(fullName: string): Promise<{ repo: GithubRepo |
  * Each token's organizations, for a new repo's owner: the ones GitHub lists for it, and the
  * ones whose repos it can open (found by listing its repos, cached for a couple of minutes).
  */
-export async function repoOwners(): Promise<{ accountId: string; orgs: string[] }[]> {
-	await Promise.allSettled(listGithubAccounts().map((a) => listRepos(a)));
-	return listGithubAccounts().map((a) => ({ accountId: a.id, orgs: a.orgs }));
+export async function repoOwners(accounts = listGithubAccounts()): Promise<{ accountId: string; orgs: string[] }[]> {
+	await Promise.allSettled(accounts.map((a) => listRepos(a)));
+	const ids = new Set(accounts.map((a) => a.id));
+	return listGithubAccounts()
+		.filter((a) => ids.has(a.id))
+		.map((a) => ({ accountId: a.id, orgs: a.orgs }));
 }
 
-export async function allRepos(how: { owner?: string; search?: string; refresh?: boolean } = {}): Promise<RepoList> {
-	const accounts = listGithubAccounts();
+export async function allRepos(how: { owner?: string; search?: string; refresh?: boolean } = {}, accounts = listGithubAccounts()): Promise<RepoList> {
 	const results = await Promise.allSettled(
 		accounts.map(async (a): Promise<RepoList> => {
 			if (how.owner) return { repos: await ownerRepos(a, how.owner), notice: null };
@@ -529,7 +531,8 @@ export async function findPrForBranch(account: GithubAccount | null, fullName: s
 
 // ── device flow ────────────────────────────────────────────────────────
 
-type Pending = { deviceCode: string; interval: number; expiresAt: number };
+/** `ownerId`: who signed in, whose own connection it becomes (null: the organization's). */
+type Pending = { deviceCode: string; interval: number; expiresAt: number; startedBy: string | null; ownerId: string | null };
 const pending = new Map<string, Pending>();
 
 const clientId = () => getSettings().githubClientId || config.githubClientId;
@@ -547,7 +550,7 @@ async function postForm<T>(url: string, form: Record<string, string>): Promise<T
 	return (await res.json()) as T;
 }
 
-export async function startDeviceFlow() {
+export async function startDeviceFlow(startedBy: string | null, ownerId: string | null) {
 	if (!clientId()) throw new BadRequest('Add a GitHub OAuth app or GitHub App under Settings to sign in with GitHub, or add a token or a GitHub App under Accounts.');
 	const r = await postForm<{ device_code: string; user_code: string; verification_uri: string; expires_in: number; interval: number; error_description?: string }>(
 		'https://github.com/login/device/code',
@@ -555,14 +558,15 @@ export async function startDeviceFlow() {
 	);
 	if (!r.device_code) throw new BadRequest(r.error_description ?? 'GitHub did not start the sign-in');
 	const handle = randomToken(16);
-	pending.set(handle, { deviceCode: r.device_code, interval: r.interval, expiresAt: Date.now() + r.expires_in * 1000 });
+	pending.set(handle, { deviceCode: r.device_code, interval: r.interval, expiresAt: Date.now() + r.expires_in * 1000, startedBy, ownerId });
 	return { handle, userCode: r.user_code, verificationUri: r.verification_uri, interval: r.interval, expiresIn: r.expires_in };
 }
 
 /** One poll: `pending` until the user approves, then the saved account. */
-export async function pollDeviceFlow(handle: string): Promise<{ state: 'pending' | 'done' | 'expired' | 'denied'; account?: GithubAccount; interval?: number }> {
+export async function pollDeviceFlow(handle: string, by: string | null): Promise<{ state: 'pending' | 'done' | 'expired' | 'denied'; account?: GithubAccount; interval?: number }> {
 	const p = pending.get(handle);
-	if (!p || Date.now() > p.expiresAt) {
+	// Someone else's sign-in in progress isn't yours to finish.
+	if (!p || Date.now() > p.expiresAt || p.startedBy !== by) {
 		pending.delete(handle);
 		return { state: 'expired' };
 	}
@@ -574,7 +578,7 @@ export async function pollDeviceFlow(handle: string): Promise<{ state: 'pending'
 	if (r.access_token) {
 		pending.delete(handle);
 		// A GitHub App's sign-ins expire (8 hours by default) and come with a refresh token.
-		return { state: 'done', account: await addGithubToken(r.access_token, 'oauth', renewalOf(r)) };
+		return { state: 'done', account: await addGithubToken(r.access_token, 'oauth', { ...renewalOf(r), ownerId: p.ownerId }) };
 	}
 	if (r.error === 'slow_down') p.interval = r.interval ?? p.interval + 5;
 	if (r.error === 'authorization_pending' || r.error === 'slow_down') return { state: 'pending', interval: p.interval };

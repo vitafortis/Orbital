@@ -15,6 +15,7 @@ import { WebSocketServer, type WebSocket } from 'ws';
 import { authenticateToken, sessionTokenFromHeader } from '../auth.ts';
 import { exec, execTty } from '../docker.ts';
 import { loginContainer } from '../accounts.ts';
+import { getAccount } from '../store.ts';
 import { runningContainer, workdir } from '../sessions/runtime.ts';
 import { canControl, type Who } from '#lib/access.ts';
 import { touchSession } from '../sessions/expiry.ts';
@@ -138,8 +139,11 @@ async function resolveTarget(path: string, params: URLSearchParams, who: Who): P
 	}
 	m = /^\/ws\/accounts\/([0-9a-f-]{36})\/login$/.exec(path);
 	if (m) {
-		// Signing a model account in is changing a shared account.
-		if (who?.role !== 'admin') throw new Refused('Only an admin can sign accounts in.');
+		// The organization's accounts are admins' to sign in; your own, yours alone.
+		const account = getAccount(m[1]);
+		if (account?.ownerId ? account.ownerId !== who?.id : who?.role !== 'admin') {
+			throw new Refused(account?.ownerId ? "That's someone else's own account: only they can sign it in." : "Only an admin can sign the organization's accounts in.");
+		}
 		const container = await loginContainer(m[1]);
 		if (!container) throw new Error('The sign-in container is not running');
 		return { container, cmd: ATTACH, tmux: true };
