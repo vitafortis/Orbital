@@ -20,6 +20,16 @@ export function ago(iso: string | null | undefined): string {
 	return new Date(iso).toLocaleDateString();
 }
 
+/** How long until a time ahead: "in 3h", "in 2d"; "now" once it's passed. */
+export function until(iso: string | null | undefined): string {
+	if (!iso) return '';
+	const s = (new Date(iso).getTime() - Date.now()) / 1000;
+	if (s < 60) return 'now';
+	if (s < 3600) return `in ${Math.round(s / 60)}m`;
+	if (s < 86400) return `in ${Math.round(s / 3600)}h`;
+	return `in ${Math.round(s / 86400)}d`;
+}
+
 export const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
 /** A GitHub connection as pickers show it: its name, then the login it signs in as. */

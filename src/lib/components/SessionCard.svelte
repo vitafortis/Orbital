@@ -7,7 +7,7 @@
 	import StateDot from './StateDot.svelte';
 	import QuestionBar from './QuestionBar.svelte';
 	import { findQuestion } from '#lib/pane.ts';
-	import { ago } from '#lib/client/format.ts';
+	import { ago, until } from '#lib/client/format.ts';
 	import { deleteSession, sendToSession, startSession, stopSession } from '#lib/client/sessions.ts';
 	import Menu from './Menu.svelte';
 	import { AGENT_LABEL } from '#lib/providers.ts';
@@ -122,6 +122,7 @@
 			</span>
 		{/if}
 		<span title={sum?.updatedAt ?? s.lastStartedAt ?? s.createdAt}>{ago(sum?.updatedAt ?? s.lastStartedAt ?? s.createdAt)}</span>
+		{#if live?.stopsAt}<span title="Stops if still idle at {new Date(live.stopsAt).toLocaleString()} (Settings → General)">· stops {until(live.stopsAt)} if idle</span>{/if}
 		<span class="ml-auto flex items-center gap-1.5">
 			{#if s.rcUrl && running}
 				<a class="btn btn-ghost btn-sm" href={s.rcUrl} target="_blank" rel="noopener" title="Open in claude.ai (Remote Control)"><BrandIcon brand="claude" class="size-3.5" />Remote</a>
