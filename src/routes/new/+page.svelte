@@ -14,6 +14,7 @@
 	import Switch from '#lib/components/Switch.svelte';
 	import { api, errorMessage } from '#lib/client/api.ts';
 	import { upsertSession } from '#lib/client/state.svelte.ts';
+	import { canStartSessions } from '#lib/access.ts';
 	import { parseRepo, slugify } from '#lib/launch.ts';
 	import { ago, githubKind, githubLabel } from '#lib/client/format.ts';
 	import { matchProfile } from '#lib/profiles.ts';
@@ -446,6 +447,14 @@
 <div class="h-full overflow-y-auto">
 	<PageHeader title="New session" description="Clone a repo into its own container and start Claude Code, Codex or Gemini there." />
 
+	{#if !canStartSessions(page.data.viewer)}
+		<div class="max-w-xl px-4 sm:px-8">
+			<div class="card p-4 text-[0.8125rem]">
+				<p class="font-medium">You have view-only access</p>
+				<p class="mt-1 text-muted-foreground">You can watch sessions and read their conversations, but not start one. An admin can make you a member.</p>
+			</div>
+		</div>
+	{:else}
 	<form class="max-w-3xl space-y-3 px-4 pb-8 sm:px-8 xl:max-w-7xl" onsubmit={submit}>
 		<div class="grid gap-2 sm:grid-cols-2">
 			{#each [{ value: 'task', icon: ListChecks, title: 'Work on a task', body: 'Start the agent with a message, or at the prompt.' }, { value: 'skill', icon: Wand, title: 'Run a skill', body: 'Start with a skill or command, e.g. /code-review on a pull request.' }] as m (m.value)}
@@ -807,4 +816,5 @@
 			</button>
 		</div>
 	</form>
+	{/if}
 </div>

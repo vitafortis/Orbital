@@ -356,18 +356,22 @@ export function countAdmins(): number {
  * becomes that user (the provider vouched for the address). `admin` grants the role; it
  * never takes away one given by hand.
  */
-export function upsertExternalUser(input: { email: string; name: string | null; source: 'oidc' | 'proxy'; admin: boolean }): User {
+/**
+ * An SSO user, as signed in: created on first sign-in, and their role set by the sign-in rules
+ * every time (a local account's role is only changed by hand).
+ */
+export function upsertExternalUser(input: { email: string; name: string | null; source: 'oidc' | 'proxy'; role: UserRole }): User {
 	const existing = findUserByEmail(input.email);
 	if (existing) {
 		if (input.name && input.name !== existing.name) updateUser(existing.id, { name: input.name });
-		if (input.admin && existing.role !== 'admin') setUserRole(existing.id, 'admin');
+		if (existing.source !== 'local' && existing.role !== input.role) setUserRole(existing.id, input.role);
 		return getUser(existing.id)!;
 	}
 	const id = randomUUID();
 	// No password: an empty hash never verifies.
 	db()
 		.prepare('INSERT INTO users (id, email, name, password_hash, role, source, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
-		.run(id, input.email.trim(), input.name, '', input.admin ? 'admin' : 'member', input.source, now());
+		.run(id, input.email.trim(), input.name, '', input.role, input.source, now());
 	return getUser(id)!;
 }
 

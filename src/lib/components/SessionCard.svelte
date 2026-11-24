@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { page } from '$app/state';
 	import { ArrowRight, ChevronDown, ListChecks, CircleAlert, GitBranch, ListTodo, LoaderCircle, Play, Send, Sparkles, CircleStop, Trash2, Wrench } from '@lucide/svelte';
 	import { repoLabel } from '#lib/launch.ts';
 	import StateBadge from './StateBadge.svelte';
@@ -13,10 +14,13 @@
 	import { AGENT_LABEL } from '#lib/providers.ts';
 	import { displayState, glowClass } from '#lib/session-state.ts';
 	import type { Session, SessionLive } from '#lib/types.ts';
-
+	import { canControl } from '#lib/access.ts';
+	
 	let { session: s, live }: { session: Session; live?: SessionLive } = $props();
 
 	const view = $derived(displayState(s, live));
+	// Yours (or you're an admin): reply, start, end; someone else's you watch.
+	const control = $derived(canControl(page.data.viewer, s));
 	const sum = $derived(live?.summary ?? null);
 	const git = $derived(live?.git ?? null);
 	const branch = $derived(git?.branch ?? s.newBranch ?? s.baseBranch);
@@ -101,9 +105,9 @@
 		</a>
 	{/if}
 
-	{#if question}
+	{#if question && control}
 		<QuestionBar card {question} agentName={AGENT_LABEL[s.agent]} onanswer={(n) => act(async () => void (await sendToSession(s, { keys: [String(n)] })))} oncancel={() => act(async () => void (await sendToSession(s, { keys: ['Escape'] })))} />
-	{:else if running && view === 'waiting'}
+	{:else if running && control && view === 'waiting'}
 		<form class="mx-4 mb-3 flex gap-2" onsubmit={send}>
 			<input class="input h-8 text-xs" placeholder="Reply to Claude…" bind:value={reply} />
 			<button class="btn btn-secondary btn-sm h-8" disabled={busy} title="Send"><Send /></button>
@@ -127,7 +131,7 @@
 			{#if s.rcUrl && running}
 				<a class="btn btn-ghost btn-sm" href={s.rcUrl} target="_blank" rel="noopener" title="Open in claude.ai (Remote Control)"><BrandIcon brand="claude" class="size-3.5" />Remote</a>
 			{/if}
-			{#if running || s.status === 'error'}
+			{#if control && (running || s.status === 'error')}
 				<Menu items={endItems} side="top">
 					{#snippet trigger({ toggle })}
 						<button class="btn btn-danger btn-sm" title="Stop or delete this session" disabled={busy} onclick={toggle}>
@@ -136,7 +140,7 @@
 					{/snippet}
 				</Menu>
 			{/if}
-			{#if !running && s.status !== 'starting'}
+			{#if control && !running && s.status !== 'starting'}
 				<button class="btn btn-ghost btn-sm" title="Start and continue the newest conversation" disabled={busy} onclick={() => act(() => startSession(s))}>
 					{#if busy}<LoaderCircle class="animate-spin" />{:else}<Play />{/if}Start
 				</button>

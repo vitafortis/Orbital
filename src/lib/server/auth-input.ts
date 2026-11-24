@@ -52,7 +52,15 @@ export function parseAuthSettings(b: Record<string, unknown>): AuthSettings {
 			trustedProxies: 'trustedProxies' in p ? list(p.trustedProxies) : d.proxy.trustedProxies,
 			logoutUrl: httpUrl(text(p.logoutUrl), 'The logout URL')
 		},
-		access: { allowedEmails: list(a.allowedEmails), allowedGroups: list(a.allowedGroups), adminEmails: list(a.adminEmails), adminGroups: list(a.adminGroups) }
+		access: {
+			allowedEmails: list(a.allowedEmails),
+			allowedGroups: list(a.allowedGroups),
+			adminEmails: list(a.adminEmails),
+			adminGroups: list(a.adminGroups),
+			memberEmails: list(a.memberEmails),
+			memberGroups: list(a.memberGroups),
+			defaultRole: a.defaultRole === 'viewer' ? 'viewer' : 'member'
+		}
 	};
 	if (s.oidc.enabled) {
 		if (!s.oidc.issuer) throw new BadRequest('Enter the provider’s issuer URL');

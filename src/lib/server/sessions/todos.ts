@@ -7,7 +7,7 @@ import { appendFileSync, existsSync, readFileSync, statSync, writeFileSync } fro
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import { listAccounts, listAwsLogins } from '../store.ts';
-import { metaDir } from './storage.ts';
+import { ensureDirs, metaDir, sessionRel } from './storage.ts';
 import type { SystemTodo, TodoItem, TodoWhere } from '#lib/types.ts';
 
 const WHERE: TodoWhere[] = ['your-machine', 'session-shell', 'browser', 'other'];
@@ -66,6 +66,8 @@ export const openTodos = (sessionId: string) => readTodos(sessionId).filter((t) 
 /** Adds one of your own. */
 export function addTodo(sessionId: string, input: { title: string; command: string | null; where: TodoWhere; why: string | null }): TodoItem {
 	const item = { id: randomUUID(), ...input, source: 'you' as const, at: new Date().toISOString() };
+	// A session that hasn't started yet has no .orb folder.
+	ensureDirs(`${sessionRel(sessionId)}/.orb`);
 	appendFileSync(itemsFile(sessionId), `${JSON.stringify(item)}\n`);
 	return { ...item, sessionId, doneAt: null };
 }

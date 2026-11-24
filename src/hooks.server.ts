@@ -6,6 +6,8 @@ import { startLinear } from '#lib/server/linear.ts';
 import { startLive } from '#lib/server/sessions/live.ts';
 import { adoptLegacyDirs } from '#lib/server/sessions/storage.ts';
 import { handleUpgrade } from '#lib/server/terminal/upgrade.ts';
+import { getSession } from '#lib/server/store.ts';
+import { apiDenied } from '#lib/access.ts';
 
 export const init: ServerInit = () => {
 	// server.js passes WebSocket upgrades (terminals) here.
@@ -75,6 +77,15 @@ export const handle: Handle = async ({ event, resolve }) => {
 			if (isApi) return json({ message: 'Not signed in' }, { status: 401 });
 			redirect(303, `/login?next=${encodeURIComponent(pathname + event.url.search)}`);
 		}
+	}
+
+	// Roles, for every change through the API (the pages only hide what you can't do).
+	if (isApi && user) {
+		const denied = apiDenied(user, method, pathname, (id) => {
+			const s = getSession(id);
+			return s ? s.ownerId : undefined;
+		});
+		if (denied) return json({ message: denied }, { status: 403 });
 	}
 
 	const response = await resolve(event);

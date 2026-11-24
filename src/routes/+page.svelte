@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { page } from '$app/state';
 	import { ArrowLeft, ChevronRight, Play, Plus, RotateCcw, Trash2, Wand } from '@lucide/svelte';
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
@@ -11,6 +12,7 @@
 	import { ago, plural, until } from '#lib/client/format.ts';
 	import { deleteSession, startSession } from '#lib/client/sessions.ts';
 	import { useSessions } from '#lib/client/state.svelte.ts';
+	import { canControl, canStartSessions } from '#lib/access.ts';
 	import { displayState, sortByRecency } from '#lib/session-state.ts';
 	import type { Session } from '#lib/types.ts';
 	import type { PageProps } from './$types';
@@ -25,6 +27,7 @@
 	const isOffline = (s: Session) => s.status === 'stopped' || s.status === 'error';
 	const online = $derived(ordered.filter((s) => !isOffline(s)));
 	const offline = $derived(ordered.filter(isOffline));
+	const resumable = $derived(offline.filter((s) => canControl(page.data.viewer, s)));
 	const states = $derived(online.map((s) => displayState(s, shown.live[s.id])));
 	const count = (st: string) => states.filter((x) => x === st).length;
 
@@ -56,7 +59,7 @@
 	let step = $state<'pick' | 'resume'>('pick');
 	let resuming = $state<string | null>(null);
 	function newSession() {
-		if (!offline.length) return goto('/new');
+		if (!resumable.length) return goto('/new');
 		step = 'pick';
 		choosing = true;
 	}
@@ -87,8 +90,10 @@
 		{#snippet actions()}
 			<!-- Until the first session, the guide below is the way in. -->
 			{#if shown.list.length}
-				<a href="/new?mode=skill&command=/code-review" class="btn btn-secondary" title="Start a session that runs /code-review on a pull request"><Wand />Review a PR</a>
-				<button class="btn btn-primary" onclick={newSession}><Plus />New session</button>
+				{#if canStartSessions(page.data.viewer)}
+					<a href="/new?mode=skill&command=/code-review" class="btn btn-secondary" title="Start a session that runs /code-review on a pull request"><Wand />Review a PR</a>
+					<button class="btn btn-primary" onclick={newSession}><Plus />New session</button>
+				{/if}
 			{/if}
 		{/snippet}
 	</PageHeader>
@@ -129,8 +134,10 @@
 								</a>
 								<span class="hidden text-xs text-muted-foreground sm:block">{ago(sum?.updatedAt ?? s.stoppedAt ?? s.lastStartedAt ?? s.createdAt)}</span>
 								{#if shown.live[s.id]?.deletesAt}<span class="hidden text-xs text-warning sm:block" title="Deleted at {new Date(shown.live[s.id]!.deletesAt!).toLocaleString()} (Settings → General)">· deleted {until(shown.live[s.id]?.deletesAt)}</span>{/if}
-								<button class="btn btn-secondary btn-sm" title="Start and continue the newest conversation" onclick={() => startSession(s)}><Play />{failed ? 'Retry' : 'Resume'}</button>
-								<button class="btn btn-ghost btn-icon btn-sm hover:text-danger" title="Delete" onclick={() => deleteSession(s, '')}><Trash2 /></button>
+								{#if canControl(page.data.viewer, s)}
+									<button class="btn btn-secondary btn-sm" title="Start and continue the newest conversation" onclick={() => startSession(s)}><Play />{failed ? 'Retry' : 'Resume'}</button>
+									<button class="btn btn-ghost btn-icon btn-sm hover:text-danger" title="Delete" onclick={() => deleteSession(s, '')}><Trash2 /></button>
+								{/if}
 							</div>
 						{/each}
 					</div>
@@ -154,14 +161,14 @@
 				<RotateCcw class="mt-0.5 size-4 shrink-0 text-primary" />
 				<span>
 					<span class="block text-[0.8125rem] font-medium">Resume</span>
-					<span class="block text-xs text-muted-foreground">Restart one of {plural(offline.length, 'offline session')}.</span>
+					<span class="block text-xs text-muted-foreground">Restart one of {plural(resumable.length, 'offline session')}.</span>
 				</span>
 			</button>
 		</div>
 	{:else}
 		<button class="btn btn-ghost btn-sm mb-2 -ml-2" onclick={() => (step = 'pick')}><ArrowLeft />Back</button>
 		<div class="grid gap-1">
-			{#each offline as s (s.id)}
+			{#each resumable as s (s.id)}
 				{@const sum = shown.live[s.id]?.summary}
 				<button class="flex items-center gap-3 rounded-lg px-2.5 py-2 text-left hover:bg-accent disabled:opacity-50" disabled={!!resuming} onclick={() => resume(s)}>
 					<StateDot state={s.status === 'error' ? 'error' : 'stopped'} />

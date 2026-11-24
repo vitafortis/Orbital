@@ -59,6 +59,7 @@
 	import { CLAUDE_ALIASES, modelLabel } from '#lib/models.ts';
 	import { findQuestion, type Question } from '#lib/pane.ts';
 	import { confirmAction, deletedHere, sessions, toast, upsertSession, useSessions } from '#lib/client/state.svelte.ts';
+	import { canControl } from '#lib/access.ts';
 	import { displayState, glowClass } from '#lib/session-state.ts';
 	import { repoLabel, sessionWorkdir } from '#lib/launch.ts';
 	import { ACCOUNT_KINDS, AGENT_LABEL, AGENT_PERMISSION_MODES } from '#lib/providers.ts';
@@ -105,6 +106,8 @@
 	const sameAgentAccounts = $derived(data.accounts.filter((a) => a.agent === s.agent));
 	const permissionModes = $derived(PERMISSION_MODES.filter((m) => AGENT_PERMISSION_MODES[s.agent].includes(m.value)));
 
+	// Whether you can type into, restart or change this session (yours, or you're an admin); else you watch.
+	const control = $derived(canControl(page.data.viewer, s));
 	let mode = $state<'claude' | 'shell'>('claude');
 	// The Read tab: the conversation formatted, over the terminal (which stays connected under it).
 	// This browser remembers it, so a phone can open on it.
@@ -375,8 +378,8 @@
 				/>
 			{:else}
 				<h1 class="group flex min-w-0 items-center gap-1.5">
-					<button type="button" class="truncate text-left text-[0.9375rem] leading-tight font-semibold tracking-tight" title="Rename" onclick={startRename}>{s.name}</button>
-					<button type="button" class="shrink-0 text-muted-foreground opacity-0 group-hover:opacity-100 focus-visible:opacity-100 max-sm:hidden" title="Rename" aria-label="Rename session" onclick={startRename}><Pencil class="size-3.5" /></button>
+					<button type="button" class="truncate text-left text-[0.9375rem] leading-tight font-semibold tracking-tight" title={control ? 'Rename' : s.name} onclick={() => control && startRename()}>{s.name}</button>
+					{#if control}<button type="button" class="shrink-0 text-muted-foreground opacity-0 group-hover:opacity-100 focus-visible:opacity-100 max-sm:hidden" title="Rename" aria-label="Rename session" onclick={startRename}><Pencil class="size-3.5" /></button>{/if}
 				</h1>
 			{/if}
 			<p class="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
@@ -393,20 +396,20 @@
 			<div class="flex rounded-lg border border-border bg-background p-0.5 text-xs">
 				{#if running}
 					<button class="flex items-center gap-1.5 rounded-md px-2.5 py-1 {!reading && mode === 'claude' ? 'bg-accent font-medium text-foreground' : 'text-muted-foreground'}" onclick={() => show('claude')}><TerminalSquare class="size-3.5" /><span class="max-sm:hidden">{agentName}</span></button>
-					<button class="flex items-center gap-1.5 rounded-md px-2.5 py-1 {!reading && mode === 'shell' ? 'bg-accent font-medium text-foreground' : 'text-muted-foreground'}" onclick={() => show('shell')}><SquareTerminal class="size-3.5" /><span class="max-sm:hidden">Shell</span></button>
+					{#if control}<button class="flex items-center gap-1.5 rounded-md px-2.5 py-1 {!reading && mode === 'shell' ? 'bg-accent font-medium text-foreground' : 'text-muted-foreground'}" onclick={() => show('shell')}><SquareTerminal class="size-3.5" /><span class="max-sm:hidden">Shell</span></button>{/if}
 				{/if}
 				{#if isClaude}
 					<button class="flex items-center gap-1.5 rounded-md px-2.5 py-1 {reading ? 'bg-accent font-medium text-foreground' : 'text-muted-foreground'}" title="The conversation, formatted" onclick={() => show(reading && !running ? 'claude' : 'read')}><BookOpen class="size-3.5" /><span class="max-sm:hidden">Read</span></button>
 				{/if}
 			</div>
 		{/if}
-		{#if running}
+		{#if running && control}
 			<button class="btn btn-ghost btn-icon btn-sm" title="Attach files for {agentName} to read (or paste or drop them on the terminal)" disabled={attaching || conn !== 'open'} onclick={() => picker?.click()}>
 				{#if attaching}<LoaderCircle class="animate-spin" />{:else}<Paperclip />{/if}
 			</button>
 			<input bind:this={picker} type="file" multiple class="hidden" onchange={(e) => (attach([...(e.currentTarget.files ?? [])]), (e.currentTarget.value = ''))} />
 		{/if}
-		{#if isClaude}
+		{#if isClaude && control}
 			<!-- Quick model switch: a native select, so phones get their own picker. -->
 			<label class="relative flex items-center gap-1 rounded-full border border-border px-2.5 py-1 text-xs text-muted-foreground hover:text-foreground max-sm:hidden" title="Model: {modelLabel(s.model)}. Change it here">
 				<Sparkles class="size-3.5" /><span class="max-w-28 truncate">{s.model ? modelLabel(s.model).replace(' (pinned)', '') : 'Default model'}</span><ChevronDown class="size-3" />
@@ -432,13 +435,17 @@
 		{#if s.rcUrl && running}
 			<a class="btn btn-secondary btn-sm max-sm:hidden" href={s.rcUrl} target="_blank" rel="noopener" title="Open this session in claude.ai (Remote Control)"><BrandIcon brand="claude" class="size-3.5" />Remote</a>
 		{/if}
-		<Menu items={restartItems}>
-			{#snippet trigger({ toggle })}
-				<button class="btn btn-secondary btn-sm" onclick={toggle} disabled={busy}>
-					{#if busy}<LoaderCircle class="animate-spin" />{:else}<MoreHorizontal />{/if}<span class="max-sm:hidden">Session</span><ChevronDown />
-				</button>
-			{/snippet}
-		</Menu>
+		{#if control}
+			<Menu items={restartItems}>
+				{#snippet trigger({ toggle })}
+					<button class="btn btn-secondary btn-sm" onclick={toggle} disabled={busy}>
+						{#if busy}<LoaderCircle class="animate-spin" />{:else}<MoreHorizontal />{/if}<span class="max-sm:hidden">Session</span><ChevronDown />
+					</button>
+				{/snippet}
+			</Menu>
+		{:else}
+			<span class="badge" title="Only the person who started this session, or an admin, can type in it or change it">Watching</span>
+		{/if}
 		<button class="btn btn-ghost btn-icon btn-sm" title={panel ? 'Hide details' : 'Show details'} onclick={togglePanel}>
 			{#if panel}<PanelRightClose />{:else}<PanelRightOpen />{/if}
 		</button>
@@ -450,11 +457,11 @@
 			{#if running && s.containerId}
 				<!-- The agent's screen only: the Shell tab is a separate terminal the probe doesn't read. -->
 				{#if mode === 'claude'}<LinkBar links={live?.links ?? []} />{/if}
-				{#if question}<QuestionBar {question} {agentName} onanswer={(n) => answer(String(n))} oncancel={() => answer('Escape')} />{/if}
-				{#if reading && isClaude}<ReadView session={s} updatedAt={sum?.updatedAt} todos={live?.todos ?? []} running {agentName} />{/if}
+				{#if question && control}<QuestionBar {question} {agentName} onanswer={(n) => answer(String(n))} oncancel={() => answer('Escape')} />{/if}
+				{#if reading && isClaude}<ReadView session={s} updatedAt={sum?.updatedAt} todos={live?.todos ?? []} running={control} {control} {agentName} />{/if}
 				<div class="relative min-h-0 flex-1 {reading && isClaude ? 'hidden' : ''}">
 					{#key `${s.containerId}:${mode}`}
-						<Terminal bind:this={term} path="/ws/sessions/{s.id}/terminal?mode={mode}" turns={mode === 'claude'} highlight={mode === 'claude'} autofocus onstate={(v) => (conn = v)} onscreen={(lines) => (question = mode === 'claude' ? findQuestion(lines) : null)} onfiles={attach} />
+						<Terminal bind:this={term} path="/ws/sessions/{s.id}/terminal?mode={mode}" turns={mode === 'claude'} highlight={mode === 'claude'} readOnly={!control} autofocus onstate={(v) => (conn = v)} onscreen={(lines) => (question = mode === 'claude' ? findQuestion(lines) : null)} onfiles={attach} />
 					{/key}
 					<!-- The agent's state as a glow around its terminal, over it but never in the way. -->
 					<div class="pointer-events-none absolute inset-0 z-10 {glowClass(view, { inset: true, connected: conn !== 'closed' })}"></div>
@@ -467,7 +474,7 @@
 						</div>
 					{/if}
 				</div>
-				{#if touch && !(reading && isClaude)}
+				{#if touch && control && !(reading && isClaude)}
 					<!-- Keys a touch keyboard lacks. Pressing one keeps the terminal focused, so the keyboard stays up. -->
 					<div class="flex shrink-0 items-center gap-1.5 overflow-x-auto border-t border-term-edge px-2 py-1.5" style="background: var(--term-chrome)">
 						<button type="button" class="btn btn-ghost btn-icon btn-sm shrink-0 text-[#aab2c0] hover:bg-white/5 hover:text-white" title="Show the keyboard" onpointerdown={(e) => e.preventDefault()} onclick={() => term?.focus()}><Keyboard /></button>
@@ -479,7 +486,7 @@
 					</div>
 				{/if}
 			{:else if reading && isClaude}
-				<ReadView session={s} updatedAt={sum?.updatedAt} todos={live?.todos ?? []} running={false} {agentName} />
+				<ReadView session={s} updatedAt={sum?.updatedAt} todos={live?.todos ?? []} running={false} {control} {agentName} />
 			{:else}
 				<div class="relative flex min-h-0 flex-1 flex-col items-center justify-center overflow-y-auto p-6" style="background: var(--term-bg)">
 					{#if live?.tail?.length}
@@ -498,7 +505,7 @@
 								{#if live?.deletesAt}<p class="mt-1 text-[0.8125rem] text-warning">Deleted {until(live.deletesAt)} ({new Date(live.deletesAt).toLocaleString()}), with its clone and conversations, unless it's started again.</p>{/if}
 								<p class="mt-1 text-[0.8125rem] text-[#9aa3b2]">The repo, its changes and every conversation are kept. Start it to get the terminal back.</p>
 							{/if}
-							<div class="mt-4 flex flex-wrap gap-2">
+							<div class="mt-4 flex flex-wrap gap-2 {control ? '' : 'hidden'}">
 								<button class="btn btn-primary" disabled={busy} onclick={() => launch({ mode: 'continue' })}>
 									{#if busy}<LoaderCircle class="animate-spin" />{:else}<Play />{/if}{sum ? 'Resume newest conversation' : 'Start'}
 								</button>
@@ -587,6 +594,7 @@
 					</PanelSection>
 				{/if}
 
+				{#if control}
 				<PanelSection id="settings" title="Session">
 					<div class="space-y-3 text-[0.8125rem]">
 					<div>
@@ -643,6 +651,7 @@
 					</div>
 					</div>
 				</PanelSection>
+				{/if}
 			</aside>
 		{/if}
 	</div>
