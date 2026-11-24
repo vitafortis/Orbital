@@ -12,7 +12,7 @@
 	import { ago, plural, until } from '#lib/client/format.ts';
 	import { deleteSession, startSession } from '#lib/client/sessions.ts';
 	import { useSessions } from '#lib/client/state.svelte.ts';
-	import { canControl, canStartSessions } from '#lib/access.ts';
+	import { canChangeSetup, canControl, canStartSessions } from '#lib/access.ts';
 	import { displayState, sortByRecency } from '#lib/session-state.ts';
 	import type { Session } from '#lib/types.ts';
 	import type { PageProps } from './$types';
@@ -21,8 +21,16 @@
 
 	let { data }: PageProps = $props();
 
+	// Mine (started by me, and shared ones) or everyone's I can see; this browser remembers which.
+	let scope = $state<'mine' | 'everyone'>('everyone');
+	const me = $derived(page.data.viewer?.id);
+	const isMine = (s: Session) => s.shared || (!!s.ownerId && s.ownerId === me);
+	// Only worth a switch when there are other people's sessions to leave out.
+	const others = $derived(shown.list.some((s) => !isMine(s)));
+	const list = $derived(scope === 'mine' && others ? shown.list.filter(isMine) : shown.list);
+
 	// Newest top-left to oldest bottom-right, whatever the state, so cards stay where you last saw them.
-	const ordered = $derived(sortByRecency(shown.list, shown.live));
+	const ordered = $derived(sortByRecency(list, shown.live));
 	// Offline: no container to talk to, either stopped or failed to start.
 	const isOffline = (s: Session) => s.status === 'stopped' || s.status === 'error';
 	const online = $derived(ordered.filter((s) => !isOffline(s)));
@@ -45,8 +53,15 @@
 	onMount(() => {
 		try {
 			for (const id of ['online', 'offline']) folded[id] = localStorage.getItem(`orb.overview.${id}`) === '0';
+			if (localStorage.getItem('orb.overview.scope') === 'mine') scope = 'mine';
 		} catch {}
 	});
+	function setScope(v: 'mine' | 'everyone') {
+		scope = v;
+		try {
+			localStorage.setItem('orb.overview.scope', v);
+		} catch {}
+	}
 	function fold(id: string) {
 		folded[id] = !folded[id];
 		try {
@@ -88,6 +103,13 @@
 <div class="h-full overflow-y-auto">
 	<PageHeader title="Sessions" {description}>
 		{#snippet actions()}
+			{#if others}
+				<div class="flex rounded-lg border border-border bg-background p-0.5 text-xs" role="group" aria-label="Whose sessions">
+					{#each [{ v: 'mine', label: 'Mine' }, { v: 'everyone', label: 'Everyone' }] as const as o (o.v)}
+						<button class="rounded-md px-2.5 py-1 {scope === o.v ? 'bg-accent font-medium text-foreground' : 'text-muted-foreground'}" aria-pressed={scope === o.v} title={o.v === 'mine' ? 'Sessions you started, and shared ones' : 'Everyone’s you can see'} onclick={() => setScope(o.v)}>{o.label}</button>
+					{/each}
+				</div>
+			{/if}
 			<!-- Until the first session, the guide below is the way in. -->
 			{#if shown.list.length}
 				{#if canStartSessions(page.data.viewer)}
@@ -136,7 +158,7 @@
 								{#if shown.live[s.id]?.deletesAt}<span class="hidden text-xs text-warning sm:block" title="Deleted at {new Date(shown.live[s.id]!.deletesAt!).toLocaleString()} (Settings → General)">· deleted {until(shown.live[s.id]?.deletesAt)}</span>{/if}
 								{#if canControl(page.data.viewer, s)}
 									<button class="btn btn-secondary btn-sm" title="Start and continue the newest conversation" onclick={() => startSession(s)}><Play />{failed ? 'Retry' : 'Resume'}</button>
-									<button class="btn btn-ghost btn-icon btn-sm hover:text-danger" title="Delete" onclick={() => deleteSession(s, '')}><Trash2 /></button>
+									{#if canChangeSetup(page.data.viewer, s)}<button class="btn btn-ghost btn-icon btn-sm hover:text-danger" title="Delete" onclick={() => deleteSession(s, '')}><Trash2 /></button>{/if}
 								{/if}
 							</div>
 						{/each}

@@ -53,16 +53,18 @@ export function confirmAction(opts: Omit<ConfirmRequest, 'resolve'>): Promise<bo
  * Sessions and their live state, shared by the sidebar, overview and session pages.
  * Seeded by the layout's load, then kept current by one Server-Sent Events stream.
  */
-export const sessions = $state<{ list: Session[]; live: Record<string, SessionLive>; connected: boolean; seeded: boolean }>({
+export const sessions = $state<{ list: Session[]; live: Record<string, SessionLive>; owners: Record<string, string>; connected: boolean; seeded: boolean }>({
 	list: [],
 	live: {},
+	// Who started each session, by name.
+	owners: {},
 	// Set once the layout has filled the store in the browser (never in the server render).
 	seeded: false,
 	// Optimistic: "offline" shows only after the stream actually drops.
 	connected: true
 });
 
-type SessionsView = { readonly list: Session[]; readonly live: Record<string, SessionLive> };
+type SessionsView = { readonly list: Session[]; readonly live: Record<string, SessionLive>; readonly owners: Record<string, string> };
 const VIEW = Symbol('sessions');
 
 /**
@@ -70,13 +72,16 @@ const VIEW = Symbol('sessions');
  * the browser; before that (the server render, the first frame) the layout's own load data, so
  * the page arrives with its sessions instead of filling them in after it has been drawn.
  */
-export function provideSessions(load: () => { sessions: Session[]; live: SessionLive[] }): SessionsView {
+export function provideSessions(load: () => { sessions: Session[]; live: SessionLive[]; owners: Record<string, string> }): SessionsView {
 	const view: SessionsView = {
 		get list() {
 			return sessions.seeded ? sessions.list : load().sessions;
 		},
 		get live() {
 			return sessions.seeded ? sessions.live : Object.fromEntries(load().live.map((l) => [l.id, l]));
+		},
+		get owners() {
+			return sessions.seeded ? sessions.owners : load().owners;
 		}
 	};
 	setContext(VIEW, view);
@@ -95,8 +100,9 @@ export function connectLive(): () => void {
 	es.onopen = () => (sessions.connected = true);
 	es.onerror = () => (sessions.connected = false);
 	es.addEventListener('live', (e) => {
-		const d = JSON.parse((e as MessageEvent).data) as { sessions: Session[]; live: SessionLive[] };
+		const d = JSON.parse((e as MessageEvent).data) as { sessions: Session[]; live: SessionLive[]; owners: Record<string, string> };
 		sessions.list = d.sessions;
+		sessions.owners = d.owners;
 		sessions.live = Object.fromEntries(d.live.map((l) => [l.id, l]));
 		sessions.connected = true;
 	});

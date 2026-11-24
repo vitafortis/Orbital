@@ -14,7 +14,7 @@
 	import { AGENT_LABEL } from '#lib/providers.ts';
 	import { displayState, glowClass } from '#lib/session-state.ts';
 	import type { Session, SessionLive } from '#lib/types.ts';
-	import { canControl } from '#lib/access.ts';
+	import { canChangeSetup, canControl } from '#lib/access.ts';
 	
 	let { session: s, live }: { session: Session; live?: SessionLive } = $props();
 
@@ -44,7 +44,8 @@
 	// End: stop (repo and conversations stay) or delete it outright; a failed session has nothing to stop.
 	const endItems = $derived([
 		...(running ? [{ label: 'Stop', hint: 'Keeps the repo and conversations', icon: CircleStop, onclick: () => act(() => stopSession(s)) }] : []),
-		{ label: 'Delete session', hint: 'Its clone, home folder and conversations', icon: Trash2, danger: true, onclick: () => act(() => deleteSession(s, '')) }
+		// A shared session is the organization's: admins delete it.
+		...(canChangeSetup(page.data.viewer, s) ? [{ label: 'Delete session', hint: 'Its clone, home folder and conversations', icon: Trash2, danger: true, onclick: () => act(() => deleteSession(s, '')) }] : [])
 	]);
 
 	async function act(fn: () => Promise<void>) {

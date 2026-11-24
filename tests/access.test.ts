@@ -6,7 +6,7 @@ import { join } from 'node:path';
 
 process.env.ORB_DATA_DIR = mkdtempSync(join(tmpdir(), 'orb-test-'));
 process.env.ORB_SECRET_KEY = 'test-key';
-const { apiDenied, canControl } = await import('#lib/access.ts');
+const { apiDenied, canChangeSetup, canControl, canSeeSession, canWatch } = await import('#lib/access.ts');
 const accessForRules = await import('#lib/server/auth-config.ts');
 const { accessFor, defaultAuthSettings } = accessForRules;
 const store = await import('#lib/server/store.ts');
@@ -14,16 +14,45 @@ const store = await import('#lib/server/store.ts');
 const admin = { id: 'a', role: 'admin' as const };
 const member = { id: 'm', role: 'member' as const };
 const viewer = { id: 'v', role: 'viewer' as const };
-const owners: Record<string, string | null> = { mine: 'm', theirs: 'x', automation: null, 'my-claude': 'm', 'their-claude': 'x', 'org-claude': null };
-const deny = (who: { id: string; role: 'admin' | 'member' | 'viewer' }, method: string, path: string) => apiDenied(who, method, path, (_what, id) => (id in owners ? owners[id] : undefined));
+const owners: Record<string, { ownerId: string | null; shared?: boolean; watchable?: boolean }> = {
+	mine: { ownerId: 'm' },
+	theirs: { ownerId: 'x' },
+	open: { ownerId: 'x', watchable: true },
+	automation: { ownerId: null, shared: true },
+	'my-claude': { ownerId: 'm' },
+	'their-claude': { ownerId: 'x' },
+	'org-claude': { ownerId: null }
+};
+type Who = { id: string; role: 'admin' | 'member' | 'viewer' };
+const deny = (who: Who, method: string, path: string, others: 'watch' | 'names' | 'hidden' = 'watch') => apiDenied(who, method, path, (_what, id) => owners[id], others);
 
-test('sessions: admins control all, members their own, viewers none', () => {
-	assert.equal(canControl(admin, { ownerId: 'x' }), true);
-	assert.equal(canControl(member, { ownerId: 'm' }), true);
-	assert.equal(canControl(member, { ownerId: 'x' }), false);
-	assert.equal(canControl(member, { ownerId: null }), false, 'automations and older sessions: admins only');
-	assert.equal(canControl(viewer, { ownerId: 'v' }), false);
-	assert.equal(canControl(null, { ownerId: 'm' }), false);
+test('sessions: admins control all, members their own and shared ones, viewers none', () => {
+	assert.equal(canControl(admin, { ownerId: 'x', shared: false }), true);
+	assert.equal(canControl(member, { ownerId: 'm', shared: false }), true);
+	assert.equal(canControl(member, { ownerId: 'x', shared: false }), false);
+	assert.equal(canControl(member, { ownerId: null, shared: true }), true, 'shared (automations, from before sign-in): members run them');
+	assert.equal(canControl(viewer, { ownerId: 'v', shared: false }), false);
+	assert.equal(canControl(viewer, { ownerId: null, shared: true }), false);
+	assert.equal(canControl(null, { ownerId: 'm', shared: false }), false);
+});
+
+test("shared sessions: members run them, admins change what they run as; others' by what Sign-in & users says", () => {
+	const shared = { ownerId: 'x', shared: true };
+	assert.equal(canChangeSetup(member, shared), false);
+	assert.equal(canChangeSetup(admin, shared), true);
+	assert.equal(canChangeSetup(member, { ownerId: 'm', shared: false }), true);
+	// What people see of someone else's session.
+	const theirs = { ownerId: 'x', shared: false };
+	assert.equal(canWatch(member, theirs, 'names'), false);
+	assert.equal(canSeeSession(member, theirs, 'names'), true);
+	assert.equal(canSeeSession(viewer, theirs, 'hidden'), false);
+	assert.equal(canWatch(viewer, { ...theirs, watchable: true }, 'hidden'), true, 'its owner let everyone watch');
+	assert.equal(canWatch(viewer, shared, 'hidden'), true, "shared ones are everyone's");
+	assert.equal(canWatch(admin, theirs, 'hidden'), true);
+	assert.match(deny(member, 'GET', '/api/sessions/theirs/conversations', 'names')!, /haven't shared it/);
+	assert.equal(deny(member, 'GET', '/api/sessions/open/conversations', 'names'), null);
+	assert.equal(deny(member, 'POST', '/api/sessions/automation/stop', 'names'), null, 'members run shared sessions');
+	assert.match(deny(viewer, 'POST', '/api/sessions/automation/stop', 'names')!, /view-only/);
 });
 
 test('the API: reads for everyone signed in; changes by role', () => {
@@ -36,7 +65,7 @@ test('the API: reads for everyone signed in; changes by role', () => {
 	// Members: start sessions, change their own, not others' or the shared settings.
 	assert.equal(deny(member, 'POST', '/api/sessions'), null);
 	for (const p of ['/api/sessions/mine/stop', '/api/sessions/mine/send', '/api/sessions/mine/attachments', '/api/sessions/mine/todos/t1']) assert.equal(deny(member, 'POST', p), null, p);
-	for (const p of ['/api/sessions/theirs/send', '/api/sessions/automation/stop']) assert.match(deny(member, 'POST', p)!, /isn't your session/, p);
+	for (const p of ['/api/sessions/theirs/send', '/api/sessions/theirs/stop']) assert.match(deny(member, 'POST', p)!, /isn't your session/, p);
 	assert.match(deny(member, 'DELETE', '/api/sessions/theirs')!, /isn't your session/);
 	assert.equal(deny(member, 'POST', '/api/sessions/nope/stop'), null, 'no such session: the endpoint says so');
 	for (const p of ['/api/github-accounts/apps', '/api/profiles', '/api/linear/rules', '/api/library/skills', '/api/settings']) assert.match(deny(member, 'POST', p)!, /Only an admin/, p);

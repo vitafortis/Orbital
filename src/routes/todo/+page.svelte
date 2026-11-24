@@ -48,7 +48,7 @@
 	const sessionById = $derived(new Map(shown.list.map((s) => [s.id, s])));
 	const running = (id: string) => sessionById.get(id)?.status === 'running';
 	// Someone else's session: its items are shown, not ticked.
-	const locked = (id: string) => !canControl(page.data.viewer, sessionById.get(id) ?? { ownerId: null });
+	const locked = (id: string) => !canControl(page.data.viewer, sessionById.get(id) ?? { ownerId: null, shared: false });
 	// Sessions with something open, newest activity first.
 	const groups = $derived(
 		sortByRecency(shown.list, shown.live)

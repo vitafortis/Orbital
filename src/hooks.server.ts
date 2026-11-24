@@ -8,6 +8,7 @@ import { adoptLegacyDirs } from '#lib/server/sessions/storage.ts';
 import { handleUpgrade } from '#lib/server/terminal/upgrade.ts';
 import { getAccount, getGithubAccount, getSession } from '#lib/server/store.ts';
 import { apiDenied } from '#lib/access.ts';
+import { othersSessions } from '#lib/server/auth-config.ts';
 
 export const init: ServerInit = () => {
 	// server.js passes WebSocket upgrades (terminals) here.
@@ -81,10 +82,13 @@ export const handle: Handle = async ({ event, resolve }) => {
 
 	// Roles, for every change through the API (the pages only hide what you can't do).
 	if (isApi && user) {
-		const denied = apiDenied(user, method, pathname, (what, id) => {
-			const x = what === 'session' ? getSession(id) : what === 'model-account' ? getAccount(id) : getGithubAccount(id);
-			return x ? x.ownerId : undefined;
-		});
+		const denied = apiDenied(
+			user,
+			method,
+			pathname,
+			(what, id) => (what === 'session' ? getSession(id) : what === 'model-account' ? getAccount(id) : getGithubAccount(id)),
+			othersSessions()
+		);
 		if (denied) return json({ message: denied }, { status: 403 });
 	}
 

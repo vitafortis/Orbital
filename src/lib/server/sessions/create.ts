@@ -13,12 +13,14 @@ import type { LinearRef, Session, SessionInput } from '#lib/types.ts';
  */
 export async function launchNewSession(
 	input: SessionInput & { repoDir: string },
-	extra: { linear?: LinearRef; ownerId?: string | null } = {}
+	extra: { linear?: LinearRef; ownerId?: string | null; shared?: boolean } = {}
 ): Promise<Session> {
 	const { prompt, ...rest } = input;
-	// Its owner's own accounts and the organization's; an automation's, the organization's only.
-	accountForSession(rest.accountId, extra.ownerId ?? null);
-	githubAccountForSession(rest.githubAccountId, extra.ownerId ?? null);
+	// Its owner's own accounts and the organization's; a shared one's or an automation's, the
+	// organization's only.
+	const user = extra.shared ? null : (extra.ownerId ?? null);
+	accountForSession(rest.accountId, user);
+	githubAccountForSession(rest.githubAccountId, user);
 	const account = getAccount(rest.accountId);
 	if (account) rest.permissionMode = fitPermissionMode(account.agent, rest.permissionMode);
 	if (rest.checkoutPr && rest.repoFullName && !rest.baseBranch) {
@@ -30,7 +32,7 @@ export async function launchNewSession(
 		} catch {}
 	}
 	const containerName = await allocateContainerName(rest.repoDir);
-	const session = createSession(randomUUID(), { ...rest, containerName, linear: extra.linear ?? null, ownerId: extra.ownerId ?? null });
+	const session = createSession(randomUUID(), { ...rest, containerName, linear: extra.linear ?? null, ownerId: extra.ownerId ?? null, shared: extra.shared });
 	void startSession(session.id, { mode: 'new', prompt })
 		.catch(() => {})
 		.finally(pokeLive);

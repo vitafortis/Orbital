@@ -30,7 +30,8 @@
 			adminGroups: s.access.adminGroups.join('\n'),
 			memberEmails: s.access.memberEmails.join('\n'),
 			memberGroups: s.access.memberGroups.join('\n'),
-			defaultRole: s.access.defaultRole
+			defaultRole: s.access.defaultRole,
+			othersSessions: s.access.othersSessions ?? 'names'
 		}
 	});
 
@@ -61,7 +62,7 @@
 			const payload = {
 				...form,
 				proxy: { ...form.proxy, trustedProxies: lines(form.proxy.trustedProxies) },
-				access: { ...Object.fromEntries(Object.entries(form.access).map(([k, v]) => [k, lines(v)])), defaultRole: form.access.defaultRole },
+				access: { ...Object.fromEntries(Object.entries(form.access).map(([k, v]) => [k, lines(v)])), defaultRole: form.access.defaultRole, othersSessions: form.access.othersSessions },
 				clientSecret: removeSecret ? null : clientSecret || undefined
 			};
 			const r = await api.put<{ settings: AuthSettings }>('/api/sign-in', payload);
@@ -338,6 +339,23 @@
 				</p>
 			</section>
 		{/if}
+
+		<section class="card space-y-3 p-5">
+			<div>
+				<h2 class="text-[0.9375rem] font-semibold tracking-tight">Other people's sessions</h2>
+				<p class="mt-0.5 text-xs text-muted-foreground">
+					What members and viewers see of a session someone else started. Admins see everything; shared sessions are everyone's; and a session's owner can still let everyone watch theirs.
+				</p>
+			</div>
+			<div class="grid gap-2 sm:grid-cols-3">
+				{#each [{ value: 'names', title: 'Names and status', body: 'Who started it, its repo and whether it is working. Not its terminal, conversation or files.' }, { value: 'watch', title: 'Watch everything', body: 'Its terminal (read-only), conversations, files and To do.' }, { value: 'hidden', title: 'Nothing', body: "Other people's sessions don't show up at all." }] as o (o.value)}
+					<label class="flex cursor-pointer gap-2.5 rounded-lg border p-3 text-[0.8125rem] {form.access.othersSessions === o.value ? 'border-primary bg-primary-soft' : 'border-border hover:bg-surface'}">
+						<input type="radio" name="others" value={o.value} bind:group={form.access.othersSessions} class="mt-0.5 accent-[var(--color-primary)]" />
+						<span><span class="font-medium">{o.title}</span><span class="mt-0.5 block text-xs text-muted-foreground">{o.body}</span></span>
+					</label>
+				{/each}
+			</div>
+		</section>
 
 		<div class="flex justify-end">
 			<button class="btn btn-primary" disabled={saving}>{#if saving}<LoaderCircle class="animate-spin" />{:else}<Save />{/if}Save sign-in settings</button>

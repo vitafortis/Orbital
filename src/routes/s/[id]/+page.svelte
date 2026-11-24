@@ -1,5 +1,6 @@
 <script lang="ts">
 	import {
+		Users,
 		ArrowDown,
 		ArrowDownToLine,
 		ArrowUp,
@@ -38,6 +39,7 @@
 	import SessionTags from '#lib/components/SessionTags.svelte';
 	import StateDot from '#lib/components/StateDot.svelte';
 	import Switch from '#lib/components/Switch.svelte';
+	import NamesOnly from '#lib/components/NamesOnly.svelte';
 	import LinkBar from '#lib/components/LinkBar.svelte';
 	import AwsProfilePicker from '#lib/components/AwsProfilePicker.svelte';
 	import BrandIcon from '#lib/components/BrandIcon.svelte';
@@ -59,7 +61,7 @@
 	import { CLAUDE_ALIASES, modelLabel } from '#lib/models.ts';
 	import { findQuestion, type Question } from '#lib/pane.ts';
 	import { confirmAction, deletedHere, sessions, toast, upsertSession, useSessions } from '#lib/client/state.svelte.ts';
-	import { canControl } from '#lib/access.ts';
+	import { canChangeSetup, canControl } from '#lib/access.ts';
 	import { displayState, glowClass } from '#lib/session-state.ts';
 	import { repoLabel, sessionWorkdir } from '#lib/launch.ts';
 	import { ACCOUNT_KINDS, AGENT_LABEL, AGENT_PERMISSION_MODES } from '#lib/providers.ts';
@@ -108,6 +110,12 @@
 
 	// Whether you can type into, restart or change this session (yours, or you're an admin); else you watch.
 	const control = $derived(canControl(page.data.viewer, s));
+	// What it runs as and who it's shared with: its owner's, or an admin's for a shared session.
+	const setup = $derived(canChangeSetup(page.data.viewer, s));
+	const admin = $derived(page.data.viewer?.admin ?? false);
+	const mine = $derived(!!s.ownerId && s.ownerId === page.data.viewer?.id);
+	/** "Sam's", or "its owner's" when we don't know them. */
+	const whose = $derived(data.ownerName ? `${data.ownerName}'s` : "its owner's");
 	let mode = $state<'claude' | 'shell'>('claude');
 	// The Read tab: the conversation formatted, over the terminal (which stays connected under it).
 	// This browser remembers it, so a phone can open on it.
@@ -351,12 +359,15 @@
 		{ label: 'New conversation', hint: 'Fresh context, same repo and branch', icon: FilePlus2, onclick: () => launch({ mode: 'new' }) },
 		'separator' as const,
 		{ label: running ? 'Stop session' : 'Start session', hint: running ? 'Keeps the repo and conversations' : 'Continue the newest conversation', icon: running ? CircleStop : Play, onclick: () => act(() => (running ? stopSession(s) : startSession(s))) },
-		{ label: 'Delete session', icon: Trash2, danger: true, onclick: () => deleteSession(s) }
+		...(setup ? [{ label: 'Delete session', icon: Trash2, danger: true, onclick: () => deleteSession(s) }] : [])
 	]);
 </script>
 
 <svelte:head><title>{s.name} · Orbital</title></svelte:head>
 
+{#if !data.watch}
+	<NamesOnly session={s} owner={data.ownerName} />
+{:else}
 <div class="flex h-full min-h-0 flex-col">
 	<!-- Header -->
 	<header class="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-2 border-b border-border bg-surface px-3 py-2 sm:px-4">
@@ -444,12 +455,33 @@
 				{/snippet}
 			</Menu>
 		{:else}
-			<span class="badge" title="Only the person who started this session, or an admin, can type in it or change it">Watching</span>
+			<span class="badge" title="Only {data.ownerName ?? 'the person who started it'}, or an admin, can type in it or change it">Watching</span>
 		{/if}
 		<button class="btn btn-ghost btn-icon btn-sm" title={panel ? 'Hide details' : 'Show details'} onclick={togglePanel}>
 			{#if panel}<PanelRightClose />{:else}<PanelRightOpen />{/if}
 		</button>
 	</header>
+
+	<!-- What it runs as, and whose: the organization's accounts, or its owner's own. Watching
+	     someone else's session says so first. -->
+	{#if data.runsAs}
+		{@const r = data.runsAs}
+		{@const owned = [r.model?.own && 'Claude account', r.github?.own && 'GitHub sign-in', r.notion && 'Notion'].filter(Boolean)}
+		<div class="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 border-b border-border px-3 py-1.5 text-xs sm:px-4 {!mine && !s.shared && owned.length ? 'bg-warning/10' : 'bg-background'}">
+			{#if s.shared}
+				<span class="badge badge-primary" title="The organization's: every member can start, stop and type into it; admins change what it runs as"><Users />Shared</span>
+			{:else if !mine}
+				<span class={owned.length ? 'font-medium text-warning' : 'text-muted-foreground'}>
+					{control ? `${whose} session` : `You're watching ${whose} session`}{owned.length ? `: it uses their ${owned.join(', ').replace(/, ([^,]*)$/, ' and $1')}` : ''}{control ? '' : '. View only.'}
+				</span>
+			{/if}
+			<span class="text-muted-foreground">Runs as</span>
+			{#if r.model}<span title={r.model.own ? `${whose} own sign-in` : "The organization's"}>{r.model.name} <span class="text-muted-foreground">· {r.model.own ? (mine ? 'yours' : whose.replace(/'s$/, '’s own')) : 'organization'}</span></span>{/if}
+			{#if r.github}<span class="flex items-center gap-1"><BrandIcon brand="github" class="size-3" />{r.github.name} <span class="text-muted-foreground">· {r.github.own ? (mine ? 'yours' : 'their own') : 'organization'}</span></span>{:else}<span class="flex items-center gap-1 text-muted-foreground"><BrandIcon brand="github" class="size-3" />none</span>{/if}
+			{#if r.notion}<span class="flex items-center gap-1"><BrandIcon brand="notion" class="size-3" />{mine ? 'your' : whose} Notion</span>{/if}
+			{#if r.aws.length}<span class="font-mono text-[0.6875rem]">AWS: {r.aws.join(', ')}</span>{/if}
+		</div>
+	{/if}
 
 	<div class="relative flex min-h-0 flex-1">
 		<!-- Terminal, or what to do when there isn't one -->
@@ -597,6 +629,27 @@
 				{#if control}
 				<PanelSection id="settings" title="Session">
 					<div class="space-y-3 text-[0.8125rem]">
+					{#if admin}
+						<div class="flex items-center justify-between gap-3">
+							<span>
+								<span class="block font-medium">Shared with everyone</span>
+								<span class="block text-xs text-muted-foreground">Every member can start, stop and type into it; it uses only the organization's accounts.</span>
+							</span>
+							<Switch checked={s.shared} label="Shared with everyone" onchange={(v) => patch({ shared: v })} />
+						</div>
+					{/if}
+					{#if setup && !s.shared}
+						<div class="flex items-center justify-between gap-3">
+							<span>
+								<span class="block font-medium">Everyone can watch</span>
+								<span class="block text-xs text-muted-foreground">Its terminal (read-only), conversations and files, whatever Sign-in & users says.</span>
+							</span>
+							<Switch checked={s.watchable} label="Everyone can watch" onchange={(v) => patch({ watchable: v })} />
+						</div>
+					{/if}
+					{#if !setup}
+						<p class="text-xs text-muted-foreground">A shared session: you can run it, and an admin changes what it runs as.</p>
+					{:else}
 					<div>
 						<label class="label" for="acct">{AGENT_LABEL[s.agent]} account</label>
 						<select id="acct" class="input h-8 text-xs" value={s.accountId} onchange={(e) => patch({ accountId: e.currentTarget.value })}>
@@ -637,6 +690,7 @@
 						<Switch checked={rcAvailable && s.remoteControl} disabled={!rcAvailable} label="Remote Control" onchange={(v) => patch({ remoteControl: v })} />
 					</div>
 					<p class="text-xs text-muted-foreground">Changes apply the next time {agentName} starts (Session → Continue newest conversation).</p>
+					{/if}
 					<div class="space-y-1.5 rounded-lg border border-border bg-background p-2.5">
 						<p class="flex items-center justify-between text-xs">
 							<span class="text-muted-foreground">Container</span>
@@ -656,6 +710,7 @@
 		{/if}
 	</div>
 </div>
+{/if}
 
 <Dialog bind:open={modelSheet} title="Model" description="{agentName} restarts on the newest conversation with it." width="max-w-sm">
 	<div class="space-y-1.5">

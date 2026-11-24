@@ -5,7 +5,7 @@
 import { config } from './config.ts';
 import { decrypt, encrypt } from './crypto.ts';
 import { getKv, setKv } from './store.ts';
-import type { AuthSettings, UserRole } from '#lib/types.ts';
+import type { AuthSettings, OthersSessions, UserRole } from '#lib/types.ts';
 
 // Docker's and the usual LAN ranges: a proxy in the same compose project or on the LAN.
 export const PRIVATE_RANGES = ['127.0.0.1/8', '::1/128', '10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16', 'fc00::/7'];
@@ -16,7 +16,7 @@ export function defaultAuthSettings(): AuthSettings {
 		passwordForm: true,
 		oidc: { enabled: false, issuer: '', clientId: '', hasSecret: false, scopes: 'openid email profile', label: 'SSO', groupsClaim: 'groups' },
 		proxy: { enabled: false, emailHeader: 'Remote-Email', nameHeader: 'Remote-Name', groupsHeader: 'Remote-Groups', trustedProxies: PRIVATE_RANGES, logoutUrl: '' },
-		access: { allowedEmails: [], allowedGroups: [], adminEmails: [], adminGroups: [], memberEmails: [], memberGroups: [], defaultRole: 'member' }
+		access: { allowedEmails: [], allowedGroups: [], adminEmails: [], adminGroups: [], memberEmails: [], memberGroups: [], defaultRole: 'member', othersSessions: 'names' }
 	};
 }
 
@@ -96,3 +96,6 @@ export function accessFor(a: AuthSettings['access'], email: string, groups: stri
 		role: admin ? 'admin' : member ? 'member' : a.defaultRole === 'viewer' ? 'viewer' : 'member'
 	};
 }
+
+/** What members and viewers see of other people's unshared sessions (Sign-in & users). */
+export const othersSessions = (): OthersSessions => getAuthSettings().access.othersSessions ?? 'names';

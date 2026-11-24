@@ -17,7 +17,8 @@ import { exec, execTty } from '../docker.ts';
 import { loginContainer } from '../accounts.ts';
 import { getAccount } from '../store.ts';
 import { runningContainer, workdir } from '../sessions/runtime.ts';
-import { canControl, type Who } from '#lib/access.ts';
+import { canControl, canWatch, type Who } from '#lib/access.ts';
+import { othersSessions } from '../auth-config.ts';
 import { touchSession } from '../sessions/expiry.ts';
 
 const wss = new WebSocketServer({ noServer: true, maxPayload: 1024 * 1024 });
@@ -130,6 +131,7 @@ async function resolveTarget(path: string, params: URLSearchParams, who: Who): P
 	if (m) {
 		const { session, container } = await runningContainer(m[1]);
 		const shell = params.get('mode') === 'shell';
+		if (!canWatch(who, session, othersSessions())) throw new Refused("That's someone else's session: they haven't shared it with you.");
 		if (!canControl(who, session)) {
 			// A shell is control of the container: no watching it.
 			if (shell) throw new Refused("Only the person who started this session (or an admin) can open its shell.");

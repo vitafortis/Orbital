@@ -59,7 +59,8 @@ export function parseAuthSettings(b: Record<string, unknown>): AuthSettings {
 			adminGroups: list(a.adminGroups),
 			memberEmails: list(a.memberEmails),
 			memberGroups: list(a.memberGroups),
-			defaultRole: a.defaultRole === 'viewer' ? 'viewer' : 'member'
+			defaultRole: a.defaultRole === 'viewer' ? 'viewer' : 'member',
+			othersSessions: a.othersSessions === 'watch' || a.othersSessions === 'hidden' ? a.othersSessions : 'names'
 		}
 	};
 	if (s.oidc.enabled) {
