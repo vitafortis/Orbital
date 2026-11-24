@@ -7,20 +7,17 @@
 	import {
 		LayoutDashboard,
 		ListChecks,
-		Library,
 		Plus,
 		Moon,
 		Sun,
 		LogOut,
 		Settings,
-		KeyRound,
 		PanelLeftClose,
 		PanelLeftOpen,
 		Menu,
 		Pin,
 		PinOff,
 		Trash2,
-		Workflow,
 		X
 	} from '@lucide/svelte';
 	import type { Session } from '#lib/types.ts';
@@ -73,9 +70,7 @@
 	const nav = [
 		{ href: '/', label: 'Sessions', icon: LayoutDashboard },
 		{ href: '/todo', label: 'To do', icon: ListChecks },
-		{ href: '/automations', label: 'Automations', icon: Workflow },
-		{ href: '/library', label: 'Library', icon: Library },
-		{ href: '/accounts', label: 'Accounts', icon: KeyRound },
+		// Accounts, the Library, automations and the rest are tabs in here.
 		{ href: '/settings', label: 'Settings', icon: Settings }
 	];
 
