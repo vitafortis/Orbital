@@ -525,7 +525,7 @@
 							<div>
 								<label class="label" for="othertoken">Created with</label>
 								<select id="othertoken" class="input" bind:value={otherToken}>
-									{#each data.githubAccounts as a (a.id)}<option value={a.id}>{githubLabel(a)} ({githubKind(a).label})</option>{/each}
+									{#each data.githubAccounts as a (a.id)}<option value={a.id}>{githubLabel(a)} ({a.ownerId ? 'yours' : githubKind(a).label})</option>{/each}
 								</select>
 							</div>
 						{/if}
@@ -551,7 +551,7 @@
 					<div>
 						<label class="label flex items-center gap-1.5" for="nrgh"><BrandIcon brand="github" class="size-3.5" />GitHub token <span class="font-normal text-muted-foreground/70">(for gh and pushing)</span></label>
 						<select id="nrgh" class="input" bind:value={noRepoToken}>
-							{#each data.githubAccounts as a (a.id)}<option value={a.id}>{githubLabel(a)} ({githubKind(a).label})</option>{/each}
+							{#each data.githubAccounts as a (a.id)}<option value={a.id}>{githubLabel(a)} ({a.ownerId ? 'yours' : githubKind(a).label})</option>{/each}
 							<option value="">None</option>
 						</select>
 					</div>
@@ -745,7 +745,7 @@
 								{#if list.length}
 									<optgroup label={AGENT_LABEL[ag]}>
 										{#each list as a (a.id)}
-											<option value={a.id}>{a.name} · {ACCOUNT_KINDS[a.kind].label}{a.status === 'signed_out' ? (ACCOUNT_KINDS[a.kind].signIn ? ' (not signed in)' : ' (not working)') : ''}</option>
+											<option value={a.id}>{a.name} · {ACCOUNT_KINDS[a.kind].label}{a.ownerId ? ' · yours' : ''}{a.status === 'signed_out' ? (ACCOUNT_KINDS[a.kind].signIn ? ' (not signed in)' : ' (not working)') : ''}</option>
 										{/each}
 									</optgroup>
 								{/if}

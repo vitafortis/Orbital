@@ -1,4 +1,5 @@
 import { json } from '@sveltejs/kit';
+import { accountForSession, githubAccountForSession } from '#lib/server/owned.ts';
 import { BadRequest, body, handler, NotFound } from '#lib/server/http.ts';
 import { AGENT_LABEL, AGENT_PERMISSION_MODES } from '#lib/providers.ts';
 import { parseAwsProfileIds, parseModel, parseName, parsePermissionMode } from '#lib/server/sessions/input.ts';
@@ -32,11 +33,13 @@ export const PATCH: RequestHandler = handler(async ({ params, request }) => {
 		if (!account) throw new NotFound('Model account not found');
 		// Conversations belong to the agent that had them.
 		if (account.agent !== s.agent) throw new BadRequest(`This session runs ${AGENT_LABEL[s.agent]}. Pick one of its accounts, or start a new session.`);
+		accountForSession(account.id, s.ownerId);
 		patch.accountId = b.accountId;
 	}
 	if ('githubAccountId' in b) {
 		const gid = typeof b.githubAccountId === 'string' && b.githubAccountId ? b.githubAccountId : null;
 		if (gid && !getGithubAccount(gid)) throw new NotFound('GitHub account not found');
+		githubAccountForSession(gid, s.ownerId);
 		patch.githubAccountId = gid;
 	}
 	if (patch.permissionMode && !AGENT_PERMISSION_MODES[s.agent].includes(patch.permissionMode)) {

@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { accountForSession, githubAccountForSession } from '../owned.ts';
 import { getPull } from '../github.ts';
 import { createSession, getAccount, getGithubAccount } from '../store.ts';
 import { fitPermissionMode } from '#lib/providers.ts';
@@ -15,6 +16,9 @@ export async function launchNewSession(
 	extra: { linear?: LinearRef; ownerId?: string | null } = {}
 ): Promise<Session> {
 	const { prompt, ...rest } = input;
+	// Its owner's own accounts and the organization's; an automation's, the organization's only.
+	accountForSession(rest.accountId, extra.ownerId ?? null);
+	githubAccountForSession(rest.githubAccountId, extra.ownerId ?? null);
 	const account = getAccount(rest.accountId);
 	if (account) rest.permissionMode = fitPermissionMode(account.agent, rest.permissionMode);
 	if (rest.checkoutPr && rest.repoFullName && !rest.baseBranch) {

@@ -84,16 +84,21 @@ export function setTodoDone(sessionId: string, id: string, done: boolean): TodoI
 
 /**
  * What Orbital itself knows needs a person: signed-out model accounts, ended AWS sign-ins, and
- * people asking for access. All of them are for admins, who are the ones who can fix them.
+ * people asking for access. Each goes to whoever can fix it: your own accounts to you, the
+ * rest to admins.
  */
 export function systemTodos(who: Who, now = Date.now()): SystemTodo[] {
 	const out: SystemTodo[] = [];
+	// Your own accounts, signed out: yours to sign in again.
+	for (const a of listAccounts()) {
+		if (a.status === 'signed_out' && a.ownerId && a.ownerId === who?.id) out.push({ id: `account:${a.id}`, title: `Sign in to your ${a.name} again`, why: "Your sessions on it can't start the agent until it's signed in.", href: '/settings/accounts#yours' });
+	}
 	if (who?.role !== 'admin') return out;
 	for (const r of listAccessRequests()) {
 		out.push({ id: `access:${r.userId}`, title: `${r.name ?? r.email} asks to be ${r.role === 'admin' ? 'an admin' : 'a member'}`, why: r.note ?? `${r.email} · Approve it, for good or for a while, under Sign-in & users.`, href: '/settings/sign-in#requests' });
 	}
 	for (const a of listAccounts()) {
-		if (a.status === 'signed_out') out.push({ id: `account:${a.id}`, title: `Sign in to ${a.name} again`, why: "Its sessions can't start the agent until it's signed in.", href: '/settings/accounts' });
+		if (a.status === 'signed_out' && !a.ownerId) out.push({ id: `account:${a.id}`, title: `Sign in to ${a.name} again`, why: "Its sessions can't start the agent until it's signed in.", href: '/settings/accounts' });
 	}
 	for (const l of listAwsLogins()) {
 		if (!l.renewable && l.expiresAt && Date.parse(l.expiresAt) < now) {

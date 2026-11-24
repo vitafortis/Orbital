@@ -21,7 +21,6 @@
 		X
 	} from '@lucide/svelte';
 	import type { Session } from '#lib/types.ts';
-	import AskAccess from '#lib/components/AskAccess.svelte';
 	import Logo from '#lib/components/Logo.svelte';
 	import Shortcuts from '#lib/components/Shortcuts.svelte';
 	import Toaster from '#lib/components/Toaster.svelte';
@@ -286,9 +285,6 @@
 				<a href="/" class="flex items-center gap-2"><Logo size={22} /><span class="text-sm font-semibold tracking-tight">Orbital</span></a>
 				{#if canStartSessions(data.viewer)}<a href="/new" class="btn btn-ghost btn-icon btn-sm ml-auto" aria-label="New session"><Plus /></a>{/if}
 			</header>
-			{#if data.viewer && !data.viewer.admin && /^\/(settings|accounts|library|automations)(\/|$)/.test(page.url.pathname)}
-				<p class="shrink-0 border-b border-border bg-surface px-4 py-2 text-xs text-muted-foreground sm:px-8">You can look around Settings, but only an admin can change it.{#if data.viewer.role === 'member'} Your Notion connection is yours to change.{/if} <AskAccess inline /></p>
-			{/if}
 			<main class="relative min-h-0 min-w-0 flex-1 overflow-hidden">
 				{@render children()}
 			</main>

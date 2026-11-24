@@ -6,7 +6,7 @@ import { startLinear } from '#lib/server/linear.ts';
 import { startLive } from '#lib/server/sessions/live.ts';
 import { adoptLegacyDirs } from '#lib/server/sessions/storage.ts';
 import { handleUpgrade } from '#lib/server/terminal/upgrade.ts';
-import { getSession } from '#lib/server/store.ts';
+import { getAccount, getGithubAccount, getSession } from '#lib/server/store.ts';
 import { apiDenied } from '#lib/access.ts';
 
 export const init: ServerInit = () => {
@@ -81,9 +81,9 @@ export const handle: Handle = async ({ event, resolve }) => {
 
 	// Roles, for every change through the API (the pages only hide what you can't do).
 	if (isApi && user) {
-		const denied = apiDenied(user, method, pathname, (id) => {
-			const s = getSession(id);
-			return s ? s.ownerId : undefined;
+		const denied = apiDenied(user, method, pathname, (what, id) => {
+			const x = what === 'session' ? getSession(id) : what === 'model-account' ? getAccount(id) : getGithubAccount(id);
+			return x ? x.ownerId : undefined;
 		});
 		if (denied) return json({ message: denied }, { status: 403 });
 	}
