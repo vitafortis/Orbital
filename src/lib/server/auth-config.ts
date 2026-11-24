@@ -63,6 +63,25 @@ const groupsMatch = (patterns: string[], groups: string[]) => {
 	return groups.some((g) => want.has(g.trim().toLowerCase()));
 };
 
+/** Which rule gives an SSO identity its role, in words for the users list. */
+export function whyRole(a: AuthSettings['access'], email: string, groups: string[]): string {
+	const byEmail = (patterns: string[]) => patterns.map((p) => p.trim()).find((p) => p && emailMatches([p], email));
+	const byGroup = (patterns: string[]) => {
+		const want = new Set(patterns.map((g) => g.trim().toLowerCase()).filter(Boolean));
+		return groups.find((g) => want.has(g.trim().toLowerCase()));
+	};
+	for (const [role, emails, gs] of [
+		['admin', a.adminEmails, a.adminGroups],
+		['member', a.memberEmails ?? [], a.memberGroups ?? []]
+	] as const) {
+		const e = byEmail(emails);
+		if (e) return `${role} rule: ${e}`;
+		const g = byGroup(gs);
+		if (g) return `${role} rule: group ${g}`;
+	}
+	return 'the default role';
+}
+
 /**
  * Whether an SSO identity may sign in, and with which role: admin, then member, by the rules;
  * anyone else allowed in gets the default role. No allow list: anyone the provider lets through.

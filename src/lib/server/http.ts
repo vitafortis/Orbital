@@ -31,6 +31,15 @@ export function requireAdmin(locals: App.Locals) {
 	if (locals.user?.role !== 'admin') throw new Forbidden('Only an admin can change this');
 }
 
+/**
+ * Who has access, and how people sign in: for lasting admins only, so someone who is an admin
+ * for a while can't make it last (by changing their own role, or the sign-in rules).
+ */
+export function requireLastingAdmin(locals: App.Locals) {
+	requireAdmin(locals);
+	if (locals.user?.baseRole !== 'admin') throw new Forbidden("You're an admin for a while: only a lasting admin can change roles, users or sign-in");
+}
+
 /** The request's JSON body as an object, or a 400. */
 export async function body(request: Request): Promise<Record<string, unknown>> {
 	const b = await request.json().catch(() => null);

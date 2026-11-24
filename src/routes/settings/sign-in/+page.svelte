@@ -8,6 +8,7 @@
 	import { copyText } from '#lib/client/clipboard.ts';
 	import { ago } from '#lib/client/format.ts';
 	import { confirmAction, toast } from '#lib/client/state.svelte.ts';
+	import { ROLE_LABEL } from '#lib/access.ts';
 	import type { AuthSettings, User, UserRole } from '#lib/types.ts';
 	import type { PageProps } from './$types';
 
@@ -87,15 +88,31 @@
 		testing = false;
 	}
 
-	async function setRole(u: User, role: UserRole) {
+	/** One change to someone's access (see PATCH /api/users/[id]). */
+	async function access(u: { id: string }, change: Record<string, unknown>, done?: string) {
 		try {
-			await api.patch(`/api/users/${u.id}`, { role });
-			await invalidateAll();
+			await api.patch(`/api/users/${u.id}`, change);
+			if (done) toast('success', done);
 		} catch (err) {
-			toast('error', "Couldn't change the role", errorMessage(err));
-			await invalidateAll();
+			toast('error', "Couldn't change their access", errorMessage(err));
 		}
+		await invalidateAll();
 	}
+
+	const setRole = (u: User, role: UserRole) =>
+		access(u, { role }, u.source === 'local' ? undefined : `${u.name ?? u.email} is ${ROLE_LABEL[role].toLowerCase()} until you change it: sign-in rules no longer do`);
+
+	/** "8h" or "7d" from the raise-for-a-while menu: role and hours. */
+	const TEMP = [
+		{ role: 'member', hours: 8, label: 'Member for 8 hours' },
+		{ role: 'member', hours: 24 * 7, label: 'Member for 7 days' },
+		{ role: 'admin', hours: 1, label: 'Admin for 1 hour' },
+		{ role: 'admin', hours: 8, label: 'Admin for 8 hours' },
+		{ role: 'admin', hours: 24, label: 'Admin for 24 hours' }
+	] as const;
+	const RANK: Record<UserRole, number> = { viewer: 0, member: 1, admin: 2 };
+	const raises = (role: UserRole) => TEMP.filter((t) => RANK[t.role] > RANK[role]);
+	const at = (iso: string) => new Date(iso).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' });
 
 	async function removeUser(u: User) {
 		const ok = await confirmAction({
@@ -129,6 +146,9 @@
 	<SettingsTabs admin description="Who can sign in to Orbital, and how." />
 
 	<form class="max-w-4xl space-y-6 px-4 pt-6 pb-12 sm:px-8" onsubmit={save}>
+		{#if data.viewer?.tempUntil}
+			<p class="rounded-lg bg-warning/10 px-3 py-2 text-[0.8125rem] text-warning">You're an admin for a while, so you can look here but not change roles, users or sign-in. A lasting admin can.</p>
+		{/if}
 		{#if data.envDisabled}
 			<div class="card flex items-start gap-3 border-warning/40 p-4 text-[0.8125rem]">
 				<CircleAlert class="mt-0.5 size-4 shrink-0 text-warning" />
@@ -323,6 +343,27 @@
 			<button class="btn btn-primary" disabled={saving}>{#if saving}<LoaderCircle class="animate-spin" />{:else}<Save />{/if}Save sign-in settings</button>
 		</div>
 
+		{#if data.requests.length}
+			<section id="requests">
+				<h2 class="mb-3 text-[0.9375rem] font-semibold tracking-tight">Asking for access</h2>
+				<div class="card divide-y divide-border border-warning/40">
+					{#each data.requests as r (r.id)}
+						<div class="flex flex-wrap items-center gap-3 px-4 py-3">
+							<div class="min-w-0 flex-1 basis-60">
+								<p class="text-[0.8125rem] font-medium">{r.name ?? r.email} <span class="font-normal text-muted-foreground">asks to be {r.role === 'admin' ? 'an admin' : 'a member'} · {ago(r.at)}</span></p>
+								<p class="text-xs text-muted-foreground">{r.note ? `“${r.note}”` : r.email}</p>
+							</div>
+							<div class="ml-auto flex flex-wrap items-center gap-1">
+								<button type="button" class="btn btn-primary btn-sm" onclick={() => access({ id: r.userId }, { role: r.role }, `${r.name ?? r.email} is now ${r.role === 'admin' ? 'an admin' : 'a member'}`)}>Make {r.role}</button>
+								<button type="button" class="btn btn-secondary btn-sm" onclick={() => access({ id: r.userId }, { tempRole: r.role, hours: r.role === 'admin' ? 8 : 24 * 7 }, `${r.name ?? r.email} is ${r.role === 'admin' ? 'an admin for 8 hours' : 'a member for 7 days'}`)}>{r.role === 'admin' ? 'For 8 hours' : 'For 7 days'}</button>
+								<button type="button" class="btn btn-ghost btn-sm" onclick={() => access({ id: r.userId }, { decline: true })}>Decline</button>
+							</div>
+						</div>
+					{/each}
+				</div>
+			</section>
+		{/if}
+
 		<section>
 			<h2 class="mb-3 flex items-center gap-2 text-[0.9375rem] font-semibold tracking-tight"><Users class="size-4 text-primary" />Users</h2>
 			<div class="card divide-y divide-border">
@@ -334,9 +375,38 @@
 								{u.name ?? u.email}{#if u.id === data.me}<span class="badge">You</span>{/if}<span class="badge">{SOURCE[u.source]}</span>
 							</p>
 							<p class="truncate text-xs text-muted-foreground">{[u.name ? u.email : null, u.lastLoginAt ? `signed in ${ago(u.lastLoginAt)}` : 'never signed in'].filter(Boolean).join(' · ')}</p>
+							<!-- Why they have the role they have: by hand, or which sign-in rule. -->
+							<p class="mt-0.5 flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
+								{#if u.source === 'local'}
+									<span>Role set here</span>
+								{:else if u.rolePinned}
+									<span class="text-foreground">Set by hand</span>{#if u.roleRule}<span>(sign-in rules say {u.roleRule})</span>{/if}
+									<button type="button" class="font-medium text-primary hover:underline" onclick={() => access(u, { followRules: true }, 'Back to the sign-in rules')}>Follow the rules</button>
+								{:else}
+									<span>From sign-in rules: {u.roleRule ?? 'at their next sign-in'}</span>
+								{/if}
+								{#if u.tempRole && u.tempUntil}
+									<span class="badge border-warning/40 text-warning">{ROLE_LABEL[u.tempRole]} until {at(u.tempUntil)}</span>
+									<button type="button" class="font-medium text-primary hover:underline" onclick={() => access(u, { tempRole: null }, `Back to ${ROLE_LABEL[u.baseRole].toLowerCase()}`)}>End now</button>
+								{/if}
+							</p>
 						</div>
 						<div class="ml-auto flex items-center gap-1">
-							<select class="input h-8 w-auto text-xs" value={u.role} onchange={(e) => setRole(u, e.currentTarget.value as UserRole)} aria-label="Role">
+							{#if raises(u.baseRole).length && !u.tempRole}
+								<select
+									class="input h-8 w-auto text-xs"
+									value=""
+									aria-label="Raise their role for a while"
+									onchange={(e) => {
+										const t = TEMP[Number(e.currentTarget.value)];
+										if (t) access(u, { tempRole: t.role, hours: t.hours }, `${u.name ?? u.email}: ${t.label.toLowerCase()}`);
+									}}
+								>
+									<option value="" disabled>For a while…</option>
+									{#each raises(u.baseRole) as t (t.label)}<option value={TEMP.indexOf(t)}>{t.label}</option>{/each}
+								</select>
+							{/if}
+							<select class="input h-8 w-auto text-xs" value={u.baseRole} onchange={(e) => setRole(u, e.currentTarget.value as UserRole)} aria-label="Role">
 								<option value="admin">Admin</option>
 								<option value="member">Member</option>
 								<option value="viewer">Viewer</option>
@@ -346,7 +416,7 @@
 					</div>
 				{/each}
 			</div>
-			<p class="mt-2 text-xs text-muted-foreground">SSO users appear here the first time they sign in. The local admin made at setup signs in with a password.</p>
+			<p class="mt-2 text-xs text-muted-foreground">SSO users appear here the first time they sign in, with the role the sign-in rules give them; a role you set here stays until you choose “Follow the rules”. A role for a while ends on its own. The local admin made at setup signs in with a password.</p>
 		</section>
 	</form>
 </div>

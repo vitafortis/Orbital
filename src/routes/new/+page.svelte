@@ -3,6 +3,7 @@
 	import { page } from '$app/state';
 	import { onMount, tick, untrack } from 'svelte';
 	import { ChevronDown, CircleAlert, FolderPlus, GitBranch, GitPullRequest, KeyRound, Layers, ListChecks, LoaderCircle, Radio, Rocket, SlidersHorizontal, Wand } from '@lucide/svelte';
+	import AskAccess from '#lib/components/AskAccess.svelte';
 	import AgentBadge from '#lib/components/AgentBadge.svelte';
 	import AwsProfilePicker from '#lib/components/AwsProfilePicker.svelte';
 	import BrandIcon from '#lib/components/BrandIcon.svelte';
@@ -452,6 +453,7 @@
 			<div class="card p-4 text-[0.8125rem]">
 				<p class="font-medium">You have view-only access</p>
 				<p class="mt-1 text-muted-foreground">You can watch sessions and read their conversations, but not start one. An admin can make you a member.</p>
+				<div class="mt-3"><AskAccess /></div>
 			</div>
 		</div>
 	{:else}
