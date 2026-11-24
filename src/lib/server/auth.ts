@@ -1,5 +1,5 @@
 import type { Cookies } from '@sveltejs/kit';
-import { accessFor, getAuthSettings, signInRequired } from './auth-config.ts';
+import { accessFor, getAuthSettings, signInRequired, whyRole } from './auth-config.ts';
 import { config } from './config.ts';
 import { ipMatches } from './net.ts';
 import { hashPassword, randomToken, sha256 } from './crypto.ts';
@@ -12,7 +12,7 @@ const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 export type AuthState = 'disabled' | 'setup' | 'anonymous' | 'authenticated';
 
 /** Stand-in user when sign-in is off. */
-const OPEN_USER: User = { id: 'open', email: 'admin', name: 'Admin', role: 'admin', source: 'local', createdAt: new Date(0).toISOString(), lastLoginAt: null };
+const OPEN_USER: User = { id: 'open', email: 'admin', name: 'Admin', role: 'admin', baseRole: 'admin', rolePinned: false, roleRule: null, tempRole: null, tempUntil: null, source: 'local', createdAt: new Date(0).toISOString(), lastLoginAt: null };
 
 let bootstrapped = false;
 
@@ -97,5 +97,5 @@ export function proxyIdentity(headers: Headers, clientAddress: string | undefine
 	const { allowed, role } = accessFor(s.access, email, groups);
 	if (!allowed) return { denied: `${email} isn't allowed to sign in to Orbital` };
 	const name = (s.proxy.nameHeader && headers.get(s.proxy.nameHeader)?.trim()) || null;
-	return { user: upsertExternalUser({ email, name, source: 'proxy', role }) };
+	return { user: upsertExternalUser({ email, name, source: 'proxy', role, rule: whyRole(s.access, email, groups) }) };
 }

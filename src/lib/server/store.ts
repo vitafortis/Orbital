@@ -8,6 +8,7 @@ import { slugify } from '#lib/launch.ts';
 import { DEFAULT_REPLY_STYLE, type ReplyStyle } from '#lib/mcp.ts';
 import { ACCOUNT_KINDS, kindAgent } from '#lib/providers.ts';
 import type {
+	AccessRequest,
 	ModelAccount,
 	AccountKind,
 	AwsLogin,
@@ -209,6 +210,19 @@ function migrate(h: DatabaseSync) {
 		// No owner: the organization's, as everything was before people had their own.
 		if (!c.has('owner_id')) h.exec(`ALTER TABLE ${t} ADD COLUMN owner_id TEXT`);
 	}
+	if (!userCols.has('role_pinned')) h.exec('ALTER TABLE users ADD COLUMN role_pinned INTEGER NOT NULL DEFAULT 0');
+	if (!userCols.has('role_rule')) h.exec('ALTER TABLE users ADD COLUMN role_rule TEXT');
+	if (!userCols.has('temp_role')) h.exec('ALTER TABLE users ADD COLUMN temp_role TEXT');
+	if (!userCols.has('temp_until')) h.exec('ALTER TABLE users ADD COLUMN temp_until TEXT');
+	h.exec(`
+		CREATE TABLE IF NOT EXISTS access_requests (
+			id TEXT PRIMARY KEY,
+			user_id TEXT NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+			role TEXT NOT NULL,
+			note TEXT,
+			created_at TEXT NOT NULL
+		);
+	`);
 	const ruleCols = new Set((h.prepare(`SELECT name FROM pragma_table_info('linear_rules')`).all() as { name: string }[]).map((c) => c.name));
 	if (!ruleCols.has('profile_id')) h.exec('ALTER TABLE linear_rules ADD COLUMN profile_id TEXT');
 	add('aws_profiles', `TEXT NOT NULL DEFAULT '[]'`);
@@ -331,12 +345,24 @@ export function saveSettings({ githubClientSecretSet: _, ...settings }: Settings
 
 // ── users and sign-in sessions ─────────────────────────────────────────
 
+const RANK: Record<UserRole, number> = { viewer: 0, member: 1, admin: 2 };
+
 function toUser(r: Row): User {
+	const baseRole = (r.role as UserRole) ?? 'admin';
+	const tempRole = (r.temp_role as UserRole) ?? null;
+	const tempUntil = (r.temp_until as string) ?? null;
+	// A higher role for a while: over once its time is up, without anyone having to undo it.
+	const temp = tempRole && tempUntil && Date.parse(tempUntil) > Date.now() && RANK[tempRole] > RANK[baseRole];
 	return {
 		id: r.id as string,
 		email: r.email as string,
 		name: (r.name as string) ?? null,
-		role: (r.role as UserRole) ?? 'admin',
+		role: temp ? tempRole : baseRole,
+		baseRole,
+		rolePinned: !!r.role_pinned,
+		roleRule: (r.role_rule as string) ?? null,
+		tempRole: temp ? tempRole : null,
+		tempUntil: temp ? tempUntil : null,
 		source: (r.source as UserSource) ?? 'local',
 		createdAt: r.created_at as string,
 		lastLoginAt: (r.last_login_at as string) ?? null
@@ -352,36 +378,72 @@ export function getUser(id: string): User | undefined {
 	return r ? toUser(r) : undefined;
 }
 
+/** Admins with a lasting role (a role for a while doesn't keep Orbital administered). */
 export function countAdmins(): number {
 	return (db().prepare(`SELECT COUNT(*) AS n FROM users WHERE role = 'admin'`).get() as { n: number }).n;
 }
 
 /**
- * Finds or creates the user an SSO sign-in stands for. A local user with the same email
- * becomes that user (the provider vouched for the address). `admin` grants the role; it
- * never takes away one given by hand.
- */
-/**
  * An SSO user, as signed in: created on first sign-in, and their role set by the sign-in rules
- * every time (a local account's role is only changed by hand).
+ * every time, unless an admin set it by hand (and a local account's role is only changed by
+ * hand). `rule` is why the rules give that role. A local user with the same email becomes
+ * that user: the provider vouched for the address.
  */
-export function upsertExternalUser(input: { email: string; name: string | null; source: 'oidc' | 'proxy'; role: UserRole }): User {
+export function upsertExternalUser(input: { email: string; name: string | null; source: 'oidc' | 'proxy'; role: UserRole; rule?: string }): User {
 	const existing = findUserByEmail(input.email);
 	if (existing) {
 		if (input.name && input.name !== existing.name) updateUser(existing.id, { name: input.name });
-		if (existing.source !== 'local' && existing.role !== input.role) setUserRole(existing.id, input.role);
+		if (existing.source !== 'local') {
+			db().prepare('UPDATE users SET role_rule = ? WHERE id = ?').run(`${input.role}, by ${input.rule ?? 'the sign-in rules'}`, existing.id);
+			if (!existing.rolePinned && existing.baseRole !== input.role) db().prepare('UPDATE users SET role = ? WHERE id = ?').run(input.role, existing.id);
+		}
 		return getUser(existing.id)!;
 	}
 	const id = randomUUID();
 	// No password: an empty hash never verifies.
 	db()
-		.prepare('INSERT INTO users (id, email, name, password_hash, role, source, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
-		.run(id, input.email.trim(), input.name, '', input.role, input.source, now());
+		.prepare('INSERT INTO users (id, email, name, password_hash, role, source, role_rule, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+		.run(id, input.email.trim(), input.name, '', input.role, input.source, `${input.role}, by ${input.rule ?? 'the sign-in rules'}`, now());
 	return getUser(id)!;
 }
 
-export function setUserRole(id: string, role: UserRole) {
-	db().prepare('UPDATE users SET role = ? WHERE id = ?').run(role, id);
+/** An admin's choice: for SSO users it stays (`pinned`) until they go back to the sign-in rules. */
+export function setUserRole(id: string, role: UserRole, pinned = true) {
+	db().prepare('UPDATE users SET role = ?, role_pinned = ? WHERE id = ?').run(role, pinned ? 1 : 0, id);
+	// Whatever they asked for is settled.
+	db().prepare('DELETE FROM access_requests WHERE user_id = ?').run(id);
+}
+
+/** Back to the sign-in rules: the role they gave at the last sign-in, until the next one. */
+export function unpinUserRole(id: string) {
+	const u = getUser(id);
+	const fromRules = /^(admin|member|viewer)\b/.exec(u?.roleRule ?? '')?.[1] as UserRole | undefined;
+	db().prepare('UPDATE users SET role_pinned = 0, role = COALESCE(?, role) WHERE id = ?').run(fromRules ?? null, id);
+}
+
+/** A higher role until `until`; null takes it away. */
+export function setTempRole(id: string, role: UserRole | null, until: string | null) {
+	db().prepare('UPDATE users SET temp_role = ?, temp_until = ? WHERE id = ?').run(role, role ? until : null, id);
+	if (role) db().prepare('DELETE FROM access_requests WHERE user_id = ?').run(id);
+}
+
+export function listAccessRequests(): AccessRequest[] {
+	return (
+		db()
+			.prepare('SELECT r.*, u.email, u.name FROM access_requests r JOIN users u ON u.id = r.user_id ORDER BY r.created_at')
+			.all() as Row[]
+	).map((r) => ({ id: r.id as string, userId: r.user_id as string, email: r.email as string, name: (r.name as string) ?? null, role: r.role as UserRole, note: (r.note as string) ?? null, at: r.created_at as string }));
+}
+
+/** One open request per person: asking again replaces it. */
+export function requestAccess(userId: string, role: UserRole, note: string | null) {
+	db()
+		.prepare('INSERT INTO access_requests (id, user_id, role, note, created_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(user_id) DO UPDATE SET role = excluded.role, note = excluded.note, created_at = excluded.created_at')
+		.run(randomUUID(), userId, role, note, now());
+}
+
+export function deleteAccessRequest(userId: string) {
+	db().prepare('DELETE FROM access_requests WHERE user_id = ?').run(userId);
 }
 
 export function deleteUser(id: string): boolean {

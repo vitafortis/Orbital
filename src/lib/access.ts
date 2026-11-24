@@ -30,7 +30,7 @@ export const usableBy = (userId: string | null | undefined, x: { ownerId: string
 export type Owned = 'session' | 'model-account' | 'github-account';
 
 /** Changes anyone signed in may make to their own things. */
-const OWN = [/^\/api\/auth\//, /^\/api\/account$/];
+const OWN = [/^\/api\/auth\//, /^\/api\/account$/, /^\/api\/access-request$/];
 /** Changes a member may make (besides their own sessions). */
 const MEMBER = [
 	/^\/api\/sessions$/,

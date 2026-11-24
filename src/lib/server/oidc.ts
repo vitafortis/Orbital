@@ -5,7 +5,7 @@
  * its signature; its issuer, audience, expiry and nonce are still checked.
  */
 import { createHash } from 'node:crypto';
-import { accessFor, getAuthSettings, oidcClientSecret } from './auth-config.ts';
+import { accessFor, getAuthSettings, oidcClientSecret, whyRole } from './auth-config.ts';
 import { randomToken } from './crypto.ts';
 import { BadRequest } from './http.ts';
 import { upsertExternalUser } from './store.ts';
@@ -141,5 +141,5 @@ export async function finishSignIn(params: URLSearchParams, cookieState: string 
 	const { allowed, role } = accessFor(s.access, email, groups);
 	if (!allowed) throw new BadRequest(`${email} isn't allowed to sign in to Orbital. An admin can allow it under Settings → Sign-in.`);
 	const name = typeof claims.name === 'string' ? claims.name : typeof claims.preferred_username === 'string' ? claims.preferred_username : null;
-	return { user: upsertExternalUser({ email, name, source: 'oidc', role }), next: p.next };
+	return { user: upsertExternalUser({ email, name, source: 'oidc', role, rule: whyRole(s.access, email, groups) }), next: p.next };
 }

@@ -494,6 +494,10 @@ export interface Viewer {
 	role: UserRole;
 	/** Admins manage sign-in, users, accounts and the Library. */
 	admin: boolean;
+	/** A higher role for a while: until when. */
+	tempUntil: string | null;
+	/** The role they've asked the admins for, while the request is open. */
+	asked: UserRole | null;
 }
 
 /** Admin: everything. Member: starts sessions and controls their own. Viewer: looks, changes nothing. */
@@ -505,11 +509,31 @@ export interface User {
 	id: string;
 	email: string;
 	name: string | null;
-	/** Admins also manage sign-in and users; members use everything else. */
+	/** What they may do now: their role, or a higher one an admin gave them for a while. */
 	role: UserRole;
+	/** Their lasting role. */
+	baseRole: UserRole;
+	/** Set by an admin by hand: sign-in rules no longer change it. */
+	rolePinned: boolean;
+	/** SSO users: the rule that gave them their role at their last sign-in. */
+	roleRule: string | null;
+	/** A higher role for a while, and until when. */
+	tempRole: UserRole | null;
+	tempUntil: string | null;
 	source: UserSource;
 	createdAt: string;
 	lastLoginAt: string | null;
+}
+
+/** Someone asking the admins for more access. */
+export interface AccessRequest {
+	id: string;
+	userId: string;
+	email: string;
+	name: string | null;
+	role: UserRole;
+	note: string | null;
+	at: string;
 }
 
 /** Sign-in settings, managed under Settings → Sign-in. */
