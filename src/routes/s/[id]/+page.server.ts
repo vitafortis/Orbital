@@ -3,7 +3,7 @@ import type { PageServerLoad } from './$types';
 import { canWatch } from '#lib/access.ts';
 import { othersSessions } from '#lib/server/auth-config.ts';
 import { accountsFor, githubAccountsFor } from '#lib/server/owned.ts';
-import { getAccount, getGithubAccount, getNotionConnection, getSession, getUser, listAwsProfiles } from '#lib/server/store.ts';
+import { getAccount, getGithubAccount, getNotionConnection, getSession, getSettings, getUser, listAwsProfiles } from '#lib/server/store.ts';
 import { listConversations } from '#lib/server/sessions/transcripts.ts';
 import type { RunsAs } from '#lib/types.ts';
 
@@ -15,7 +15,7 @@ export const load: PageServerLoad = ({ params, locals }) => {
 		// Someone else's, by name only (or not at all): the page says whose, and nothing of what's in it.
 		if (others === 'hidden') error(404, 'Session not found');
 		const owner = session.ownerId ? getUser(session.ownerId) : undefined;
-		return { session: { ...session, skill: null, rcUrl: null, error: null, linear: null }, watch: false as const, ownerName: owner ? (owner.name ?? owner.email) : null, accounts: [], githubAccounts: [], awsProfiles: [], conversations: [], runsAs: null };
+		return { session: { ...session, skill: null, rcUrl: null, error: null, linear: null }, watch: false as const, ownerName: owner ? (owner.name ?? owner.email) : null, accounts: [], githubAccounts: [], awsProfiles: [], conversations: [], runsAs: null, expiryDefaults: null };
 	}
 	// The conversation list is rendered with the page, so the panel doesn't fill in after it.
 	const conversations = session.agent === 'claude' ? listConversations(session) : [];
@@ -35,5 +35,8 @@ export const load: PageServerLoad = ({ params, locals }) => {
 		notion: !session.shared && !!owner && !!getNotionConnection(owner.id),
 		aws: awsProfiles.filter((p) => session.awsProfileIds.includes(p.id)).map((p) => p.name)
 	};
-	return { session, watch: true as const, ownerName, accounts: accountsFor(who), githubAccounts: githubAccountsFor(who), awsProfiles, conversations, runsAs };
+	// What its expiry fields mean when empty: the defaults for its kind (Settings → General).
+	const st = getSettings();
+	const expiryDefaults = session.linear ? { idleStopHours: st.autoIdleStopHours, deleteStoppedDays: st.autoDeleteStoppedDays } : { idleStopHours: st.idleStopHours, deleteStoppedDays: st.deleteStoppedDays };
+	return { session, watch: true as const, ownerName, accounts: accountsFor(who), githubAccounts: githubAccountsFor(who), awsProfiles, conversations, runsAs, expiryDefaults };
 };

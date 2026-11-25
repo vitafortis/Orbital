@@ -235,6 +235,9 @@ export interface Session {
 	model: string | null;
 	permissionMode: PermissionMode;
 	remoteControl: boolean;
+	/** Its own expiry, instead of the defaults in Settings → General: hours idle, days stopped; 0 never; null the default. */
+	idleStopHours: number | null;
+	deleteStoppedDays: number | null;
 	status: SessionStatus;
 	containerId: string | null;
 	error: string | null;
@@ -261,6 +264,9 @@ export interface SessionInput {
 	permissionMode: PermissionMode;
 	remoteControl: boolean;
 	prompt: string | null;
+	/** Its own expiry (see Session); null or absent: the default. */
+	idleStopHours?: number | null;
+	deleteStoppedDays?: number | null;
 }
 
 /** What Claude is doing right now, read from the terminal. */
@@ -460,6 +466,9 @@ export interface LinearRule {
 	comment: boolean;
 	/** Move the issue to the team's first "started" state. */
 	moveToStarted: boolean;
+	/** Its sessions' expiry, instead of the automation defaults in Settings → General; null: those defaults. */
+	idleStopHours: number | null;
+	deleteStoppedDays: number | null;
 	enabled: boolean;
 	createdAt: string;
 	lastCheckedAt: string | null;
@@ -487,9 +496,15 @@ export interface Settings {
 	/** Per-container limits; 0 means none. */
 	memoryMb: number;
 	cpus: number;
-	/** Expiry, to keep sessions short-lived: stop one idle this many hours, delete one stopped this many days; 0 means never. */
+	/**
+	 * Expiry, to keep sessions short-lived: stop one idle this many hours, delete one stopped
+	 * this many days; 0 means never. For sessions people start, then for those automations
+	 * start (a Linear rule); a rule or a session can set its own.
+	 */
 	idleStopHours: number;
 	deleteStoppedDays: number;
+	autoIdleStopHours: number;
+	autoDeleteStoppedDays: number;
 	defaultModel: string;
 	defaultPermissionMode: PermissionMode;
 	defaultRemoteControl: boolean;

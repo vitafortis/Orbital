@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { enforceExpiry, expiryTimes, touchSession } from '#lib/server/sessions/expiry.ts';
+import { enforceExpiry, expiryFor, expiryTimes, touchSession } from '#lib/server/sessions/expiry.ts';
+import { parseExpiry } from '#lib/server/sessions/input.ts';
 
 const H = 3600_000;
 const at = (ms: number) => new Date(ms).toISOString();
@@ -44,4 +45,16 @@ test('what is due is stopped or deleted; a failure is left for the next poll', a
 	assert.deepEqual(again.stopped, []);
 	const later = await enforceExpiry([{ id: 'd', name: 'd', stopsAt: at(now - 1), deletesAt: null }], { stop: async () => done.push('stop d'), remove: async () => {} }, now + 6 * 60_000);
 	assert.deepEqual(later.stopped, ['d']);
+});
+
+test("a session's expiry: its own, else the defaults for people's or automations' sessions", () => {
+	const settings = { idleStopHours: 8, deleteStoppedDays: 7, autoIdleStopHours: 1, autoDeleteStoppedDays: 0.5 };
+	const issue = { issueId: 'i', identifier: 'ENG-1', url: 'https://linear.app/x' };
+	assert.deepEqual(expiryFor({ idleStopHours: null, deleteStoppedDays: null, linear: null }, settings), { idleStopHours: 8, deleteStoppedDays: 7 });
+	assert.deepEqual(expiryFor({ idleStopHours: null, deleteStoppedDays: null, linear: issue }, settings), { idleStopHours: 1, deleteStoppedDays: 0.5 }, 'started by a Linear rule');
+	assert.deepEqual(expiryFor({ idleStopHours: 0, deleteStoppedDays: 2, linear: issue }, settings), { idleStopHours: 0, deleteStoppedDays: 2 }, 'its own wins; 0 is never');
+	// What a form sends: empty is the default, numbers its own, nonsense refused.
+	assert.deepEqual(parseExpiry({ idleStopHours: '', deleteStoppedDays: '0.25' }), { idleStopHours: null, deleteStoppedDays: 0.25 });
+	assert.deepEqual(parseExpiry({}), { idleStopHours: null, deleteStoppedDays: null });
+	assert.throws(() => parseExpiry({ idleStopHours: -1 }), /from 0/);
 });

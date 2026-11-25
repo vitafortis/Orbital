@@ -40,6 +40,7 @@
 	import StateDot from '#lib/components/StateDot.svelte';
 	import Switch from '#lib/components/Switch.svelte';
 	import NamesOnly from '#lib/components/NamesOnly.svelte';
+	import ExpiryFields from '#lib/components/ExpiryFields.svelte';
 	import LinkBar from '#lib/components/LinkBar.svelte';
 	import AwsProfilePicker from '#lib/components/AwsProfilePicker.svelte';
 	import BrandIcon from '#lib/components/BrandIcon.svelte';
@@ -267,6 +268,15 @@
 			toast('error', 'No summary', errorMessage(err));
 		}
 		summarizing = false;
+	}
+
+	async function patchExpiry(body: Pick<Session, 'idleStopHours' | 'deleteStoppedDays'>) {
+		try {
+			upsertSession(await api.patch<Session>(`/api/sessions/${s.id}`, body));
+			toast('success', 'Saved', 'Expiry applies from now.');
+		} catch (err) {
+			toast('error', "Couldn't save", errorMessage(err));
+		}
 	}
 
 	async function patch(body: Partial<Session>) {
@@ -690,6 +700,13 @@
 						<Switch checked={rcAvailable && s.remoteControl} disabled={!rcAvailable} label="Remote Control" onchange={(v) => patch({ remoteControl: v })} />
 					</div>
 					<p class="text-xs text-muted-foreground">Changes apply the next time {agentName} starts (Session → Continue newest conversation).</p>
+					{#if data.expiryDefaults}
+						<!-- Its own expiry, at once: empty follows Settings → General (or its Linear rule's, set when it started). -->
+						<div>
+							<ExpiryFields id="s-exp" idleStopHours={s.idleStopHours} deleteStoppedDays={s.deleteStoppedDays} defaults={data.expiryDefaults} onchange={(v) => patchExpiry(v)} />
+							<p class="mt-1 text-xs text-muted-foreground">Empty: the defaults for {s.linear ? 'sessions automations start' : 'sessions people start'} (Settings → General). 0: never.</p>
+						</div>
+					{/if}
 					{/if}
 					<div class="space-y-1.5 rounded-lg border border-border bg-background p-2.5">
 						<p class="flex items-center justify-between text-xs">

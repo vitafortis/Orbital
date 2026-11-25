@@ -189,17 +189,36 @@
 						<input id="cpu" class="input" type="number" min="0" step="0.5" placeholder="No limit" bind:value={form.cpus} />
 					</div>
 				</div>
-				<div class="grid grid-cols-2 gap-3 sm:col-span-2">
-					<div>
-						<label class="label" for="idle">Stop idle sessions after (hours)</label>
-						<input id="idle" class="input" type="number" min="0" step="0.5" placeholder="Never" bind:value={form.idleStopHours} />
-						<p class="mt-1 text-xs text-muted-foreground">No new conversation and nothing typed in its terminals for this long. A session whose agent is working is never idle.</p>
+				<!-- Expiry: sessions people start, and those automations start; a rule or a session can set its own. -->
+				<div class="space-y-2 sm:col-span-2">
+					<p class="text-[0.8125rem] font-medium">Expiry</p>
+					<div class="overflow-x-auto">
+						<table class="w-full text-[0.8125rem]">
+							<thead>
+								<tr class="text-left text-xs text-muted-foreground">
+									<th class="pr-3 pb-1.5 font-normal"></th>
+									<th class="pr-3 pb-1.5 font-normal"><label for="idle">Stop when idle (hours)</label></th>
+									<th class="pb-1.5 font-normal"><label for="del">Delete when stopped (days)</label></th>
+								</tr>
+							</thead>
+							<tbody>
+								<tr>
+									<td class="py-1 pr-3 whitespace-nowrap">Sessions people start</td>
+									<td class="py-1 pr-3"><input id="idle" class="input" type="number" min="0" step="0.25" placeholder="Never" bind:value={form.idleStopHours} /></td>
+									<td class="py-1"><input id="del" class="input" type="number" min="0" step="0.25" placeholder="Never" bind:value={form.deleteStoppedDays} /></td>
+								</tr>
+								<tr>
+									<td class="py-1 pr-3 whitespace-nowrap">Sessions automations start</td>
+									<td class="py-1 pr-3"><input id="aidle" class="input" type="number" min="0" step="0.25" placeholder="Never" aria-label="Automation sessions: stop when idle (hours)" bind:value={form.autoIdleStopHours} /></td>
+									<td class="py-1"><input id="adel" class="input" type="number" min="0" step="0.25" placeholder="Never" aria-label="Automation sessions: delete when stopped (days)" bind:value={form.autoDeleteStoppedDays} /></td>
+								</tr>
+							</tbody>
+						</table>
 					</div>
-					<div>
-						<label class="label" for="del">Delete stopped sessions after (days)</label>
-						<input id="del" class="input" type="number" min="0" step="0.5" placeholder="Never" bind:value={form.deleteStoppedDays} />
-						<p class="mt-1 text-xs text-muted-foreground">With their clone, home folder and conversations; pushed commits stay on GitHub. 0: never.</p>
-					</div>
+					<p class="text-xs text-muted-foreground">
+						Idle: no new conversation and nothing typed in its terminals for that long; a session whose agent is working is never idle. Deleting takes its clone, home folder and
+						conversations; pushed commits stay on GitHub. 0 or empty: never. A Linear rule, or a session in its panel, can set its own.
+					</p>
 				</div>
 				<div>
 					<label class="label" for="dm">Default model</label>

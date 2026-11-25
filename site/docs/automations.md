@@ -22,6 +22,7 @@ Orbital asks Linear for new issues every minute, so nothing on your network has 
 - **GitHub account**: the connection the session uses, or none for a public repo.
 - **Profile**: *None* uses the account and permissions below, *Match the repo* uses the matching [profile](accounts.html#profiles) (else the rule's own), or pick one profile.
 - **First message**: a template with `{identifier}`, `{title}`, `{description}`, `{url}` and `{branch}`. Start it with a skill, such as `/my-skill {identifier}`, to run one.
+- **Stop when idle** and **Delete when stopped**: this rule's sessions' own [expiry](sessions.html#expiry). Empty follows the defaults for sessions automations start, under **Settings → General**.
 
 Rules use only the organization's model accounts and GitHub connections, since their sessions don't run as any one person. Their sessions are [shared](sessions.html#shared-sessions).
 

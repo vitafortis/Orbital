@@ -1,7 +1,8 @@
 /**
  * Session expiry, to keep sessions short-lived (Settings → General): a session idle for
  * `idleStopHours` is stopped, and one stopped for `deleteStoppedDays` is deleted, clone and
- * conversations with it. Idle: nothing new in its conversation and nothing typed in its
+ * conversations with it. Sessions people start and those automations start have their own
+ * defaults; a Linear rule can set its sessions' own, and any session its own (expiryFor). Idle: nothing new in its conversation and nothing typed in its
  * terminals (the Shell tab too) for that long, and its agent not working. Checked from the
  * live poll.
  */
@@ -18,13 +19,24 @@ export function touchSession(id: string, now = Date.now()) {
 	lastInput.set(id, now);
 }
 
+type Expiry = Pick<Settings, 'idleStopHours' | 'deleteStoppedDays'>;
+
+/** The expiry a session goes by: its own where it set one, else its kind's default. */
+export function expiryFor(s: Pick<Session, 'idleStopHours' | 'deleteStoppedDays' | 'linear'>, settings: Pick<Settings, 'idleStopHours' | 'deleteStoppedDays' | 'autoIdleStopHours' | 'autoDeleteStoppedDays'>): Expiry {
+	const auto = !!s.linear;
+	return {
+		idleStopHours: s.idleStopHours ?? (auto ? settings.autoIdleStopHours : settings.idleStopHours),
+		deleteStoppedDays: s.deleteStoppedDays ?? (auto ? settings.autoDeleteStoppedDays : settings.deleteStoppedDays)
+	};
+}
+
 const time = (iso: string | null | undefined) => (iso ? Date.parse(iso) || 0 : 0);
 
 /** When expiry stops or deletes the session, if it will. */
 export function expiryTimes(
 	s: Pick<Session, 'id' | 'status' | 'lastStartedAt' | 'stoppedAt' | 'createdAt'>,
 	live: Pick<SessionLive, 'state' | 'summary'>,
-	settings: Pick<Settings, 'idleStopHours' | 'deleteStoppedDays'>
+	settings: Expiry
 ): { stopsAt: string | null; deletesAt: string | null } {
 	let stopsAt: string | null = null;
 	let deletesAt: string | null = null;

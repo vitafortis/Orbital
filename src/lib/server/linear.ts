@@ -189,7 +189,10 @@ async function spawn(rule: LinearRule, issue: LinearIssue) {
 			model: profile ? profile.model : rule.model,
 			permissionMode: profile?.permissionMode ?? rule.permissionMode,
 			remoteControl: getSettings().defaultRemoteControl,
-			prompt: renderPrompt(rule.prompt, issue, branch)
+			prompt: renderPrompt(rule.prompt, issue, branch),
+			// The rule's own expiry; null leaves the automation defaults.
+			idleStopHours: rule.idleStopHours,
+			deleteStoppedDays: rule.deleteStoppedDays
 		},
 		{ linear: { issueId: issue.id, identifier: issue.identifier, url: issue.url } }
 	);
