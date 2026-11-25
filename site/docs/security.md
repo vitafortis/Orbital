@@ -44,7 +44,7 @@ The pages hide what your role can't do, and the server refuses it anyway: every 
 1. **Single sign-on only.** Set up OpenID Connect, then turn **Password sign-in** off. Keep one admin with a password for when single sign-on is down (`/login?local`).
 2. **Default role: Viewer.** Make the people who should start sessions members through a group rule, and admins through a smaller one. Raise people for a while when they need more, instead of for good.
 3. **Other people's sessions: Names and status.** People see that a session exists, not what's in it, unless its owner lets everyone watch.
-4. **Session expiry.** Under **Settings → General**, stop idle sessions after a few hours and delete stopped ones after a few days.
+4. **Session expiry.** Under **Settings → General**, stop idle sessions after a few hours and delete stopped ones after a few days. Give sessions automations start shorter times, since nobody comes back to them.
 5. **GitHub Apps instead of personal tokens** for the organization, with the narrowest permissions that work (read-only for review sessions). Let people sign in with GitHub for work that should be under their own name.
 6. **Read-only AWS roles** by default, and write roles only in sandbox accounts.
 7. **Back up** both volumes, and keep `ORB_SECRET_KEY` or `/data/secret.key` somewhere safe.

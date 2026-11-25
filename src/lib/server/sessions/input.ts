@@ -12,6 +12,21 @@ export function parsePermissionMode(v: unknown): PermissionMode {
 	return v as PermissionMode;
 }
 
+/**
+ * A session's (or a Linear rule's) own expiry: hours idle before it stops, days stopped before
+ * it's deleted; 0 never; null, empty or absent, the defaults in Settings → General.
+ */
+export function parseExpiry(b: Record<string, unknown>): { idleStopHours: number | null; deleteStoppedDays: number | null } {
+	const one = (key: string, max: number, what: string): number | null => {
+		const v = b[key];
+		if (v === null || v === undefined || v === '') return null;
+		const n = Number(v);
+		if (!Number.isFinite(n) || n < 0 || n > max) throw new BadRequest(`${what}: a number from 0 (never) to ${max}, or empty for the default`);
+		return n;
+	};
+	return { idleStopHours: one('idleStopHours', 24 * 365, 'Stop when idle for (hours)'), deleteStoppedDays: one('deleteStoppedDays', 3650, 'Delete when stopped for (days)') };
+}
+
 export function parseModel(v: unknown): string | null {
 	if (v === undefined || v === null || v === '') return null;
 	if (typeof v !== 'string' || !MODEL.test(v.trim())) throw new BadRequest('Model must be an alias like opus or sonnet, or a model name');
@@ -92,7 +107,8 @@ export function parseSessionInput(b: Record<string, unknown>): SessionInput & { 
 		permissionMode: fitPermissionMode(account.agent, parsePermissionMode(b.permissionMode)),
 		remoteControl: b.remoteControl !== false,
 		// A skill session's first message is the command itself.
-		prompt: skill ?? str(b, 'prompt', { max: 20_000 })
+		prompt: skill ?? str(b, 'prompt', { max: 20_000 }),
+		...parseExpiry(b)
 	};
 }
 

@@ -50,6 +50,8 @@ export const PUT: RequestHandler = handler(async ({ request, locals }) => {
 		cpus: num('cpus', 512),
 		idleStopHours: num('idleStopHours', 24 * 365),
 		deleteStoppedDays: num('deleteStoppedDays', 3650),
+		autoIdleStopHours: num('autoIdleStopHours', 24 * 365),
+		autoDeleteStoppedDays: num('autoDeleteStoppedDays', 3650),
 		defaultModel: parseModel(b.defaultModel) ?? '',
 		defaultPermissionMode: parsePermissionMode(b.defaultPermissionMode),
 		defaultRemoteControl: b.defaultRemoteControl !== false,

@@ -19,6 +19,7 @@
 	import RepoPicker from '#lib/components/RepoPicker.svelte';
 	import EmptyState from '#lib/components/EmptyState.svelte';
 	import Switch from '#lib/components/Switch.svelte';
+	import ExpiryFields from '#lib/components/ExpiryFields.svelte';
 	import { api, errorMessage } from '#lib/client/api.ts';
 	import { ago, githubLabel } from '#lib/client/format.ts';
 	import { modelLabel } from '#lib/models.ts';
@@ -97,6 +98,8 @@
 			prompt: data.defaultPrompt,
 			comment: true,
 			moveToStarted: true,
+			idleStopHours: null,
+			deleteStoppedDays: null,
 			enabled: true,
 			pickUpExisting: false
 		};
@@ -358,6 +361,11 @@
 			<label class="flex items-center justify-between gap-3 rounded-lg border border-border px-3 py-2 text-[0.8125rem]">
 				Move it to In Progress <Switch bind:checked={form.moveToStarted} label="Move to In Progress" />
 			</label>
+			<!-- Its sessions' expiry: empty follows the automation defaults (Settings → General). -->
+			<div class="sm:col-span-2">
+				<ExpiryFields id="rule-exp" bind:idleStopHours={form.idleStopHours} bind:deleteStoppedDays={form.deleteStoppedDays} defaults={{ idleStopHours: data.expiryDefaults.autoIdleStopHours, deleteStoppedDays: data.expiryDefaults.autoDeleteStoppedDays }} />
+				<p class="mt-1 text-xs text-muted-foreground">For this rule's sessions. Empty: the defaults for automations, under Settings → General.</p>
+			</div>
 			{#if editing === 'new'}
 				<label class="flex items-center justify-between gap-3 rounded-lg border border-border px-3 py-2 text-[0.8125rem] sm:col-span-2">
 					<span>Also start sessions for issues that already have the label <span class="block text-xs text-muted-foreground">Off: only issues labelled from now on.</span></span>

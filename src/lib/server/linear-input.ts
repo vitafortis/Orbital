@@ -1,6 +1,6 @@
 import { BadRequest, str } from './http.ts';
 import { DEFAULT_PROMPT } from './linear.ts';
-import { parseModel, parsePermissionMode } from './sessions/input.ts';
+import { parseExpiry, parseModel, parsePermissionMode } from './sessions/input.ts';
 import { requireOrgAccount } from './owned.ts';
 import { getAccount, getGithubAccount, getProfile, type LinearRuleInput } from './store.ts';
 import { isValidBranch, parseRepo } from '#lib/launch.ts';
@@ -37,6 +37,7 @@ export function parseRuleInput(b: Record<string, unknown>): LinearRuleInput {
 		prompt: str(b, 'prompt', { max: 10_000 }) ?? DEFAULT_PROMPT,
 		comment: b.comment !== false,
 		moveToStarted: b.moveToStarted !== false,
+		...parseExpiry(b),
 		enabled: b.enabled !== false
 	};
 }

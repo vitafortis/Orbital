@@ -10,7 +10,7 @@ import { getSession, getSettings, listSessions, setSessionRcUrl } from '../store
 import { extractLinks, findRcUrl, paneState, parseProbe } from '#lib/pane.ts';
 import { checkPr } from './prs.ts';
 import { deleteSession, reconcile, runningContainer, stopSession } from './runtime.ts';
-import { enforceExpiry, expiryTimes } from './expiry.ts';
+import { enforceExpiry, expiryFor, expiryTimes } from './expiry.ts';
 import { metaDir } from './storage.ts';
 import { latestExcerpt, latestSummary } from './transcripts.ts';
 import { openTodos } from './todos.ts';
@@ -80,7 +80,7 @@ async function pollOnce() {
 				// Read while Claude was writing it: keep the last good one, or the panel jumps.
 				summary = lastSummary.get(s.id) ?? null;
 			}
-			const expiry = expiryTimes(s, { state: p.state, summary }, settings);
+			const expiry = expiryTimes(s, { state: p.state, summary }, expiryFor(s, settings));
 			return { id: s.id, status: s.status, ...p, summary, aiSummary: readAiSummary(s.id), aws: sessionAws(s.id), todos: openTodos(s.id), ...expiry, at: new Date().toISOString() };
 		})
 	);

@@ -236,6 +236,11 @@ function migrate(h: DatabaseSync) {
 	// organization's: shared.
 	if (!cols.has('shared')) h.exec(`ALTER TABLE sessions ADD COLUMN shared INTEGER NOT NULL DEFAULT 0; UPDATE sessions SET shared = 1 WHERE owner_id IS NULL OR owner_id = 'open';`);
 	add('watchable', 'INTEGER NOT NULL DEFAULT 0');
+	// A session's (and a rule's) own expiry; null: the defaults.
+	add('idle_stop_hours', 'REAL');
+	add('delete_stopped_days', 'REAL');
+	if (!ruleCols.has('idle_stop_hours')) h.exec('ALTER TABLE linear_rules ADD COLUMN idle_stop_hours REAL');
+	if (!ruleCols.has('delete_stopped_days')) h.exec('ALTER TABLE linear_rules ADD COLUMN delete_stopped_days REAL');
 	const profileCols = new Set((h.prepare(`SELECT name FROM pragma_table_info('profiles')`).all() as { name: string }[]).map((c) => c.name));
 	if (!profileCols.has('aws_profiles')) h.exec(`ALTER TABLE profiles ADD COLUMN aws_profiles TEXT NOT NULL DEFAULT '[]'`);
 	h.exec(`
@@ -324,6 +329,8 @@ export function defaultSettings(): Settings {
 		memoryMb: 0,
 		idleStopHours: 0,
 		deleteStoppedDays: 0,
+		autoIdleStopHours: 0,
+		autoDeleteStoppedDays: 0,
 		cpus: 0,
 		defaultModel: '',
 		defaultPermissionMode: 'default',
@@ -812,7 +819,9 @@ function toSession(r: Row): Session {
 		rcUrl: (r.rc_url as string) ?? null,
 		createdAt: r.created_at as string,
 		lastStartedAt: (r.last_started_at as string) ?? null,
-		stoppedAt: (r.stopped_at as string) ?? null
+		stoppedAt: (r.stopped_at as string) ?? null,
+		idleStopHours: (r.idle_stop_hours as number) ?? null,
+		deleteStoppedDays: (r.delete_stopped_days as number) ?? null
 	};
 }
 
@@ -844,8 +853,9 @@ export function createSession(
 		.prepare(
 			`INSERT INTO sessions (id, name, repo_url, repo_full_name, repo_dir, base_branch, new_branch, claude_account_id,
 				github_account_id, model, permission_mode, remote_control, status, created_at,
-				container_name, kind, skill, checkout_pr, linear_issue_id, linear_identifier, linear_url, aws_profiles, owner_id, shared)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'stopped', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+				container_name, kind, skill, checkout_pr, linear_issue_id, linear_identifier, linear_url, aws_profiles, owner_id, shared,
+				idle_stop_hours, delete_stopped_days)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'stopped', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 		)
 		.run(
 			id,
@@ -871,7 +881,9 @@ export function createSession(
 			JSON.stringify(input.awsProfileIds ?? []),
 			input.ownerId ?? null,
 			// Automations' sessions (no owner), and those started with sign-in off, are shared.
-			input.shared || !input.ownerId || input.ownerId === 'open' ? 1 : 0
+			input.shared || !input.ownerId || input.ownerId === 'open' ? 1 : 0,
+			input.idleStopHours ?? null,
+			input.deleteStoppedDays ?? null
 		);
 	return getSession(id)!;
 }
@@ -893,9 +905,11 @@ export function setSessionOwner(id: string, ownerId: string | null) {
 
 export function updateSession(
 	id: string,
-	patch: Partial<Pick<Session, 'name' | 'model' | 'permissionMode' | 'remoteControl' | 'accountId' | 'githubAccountId' | 'awsProfileIds' | 'shared' | 'watchable'>>
+	patch: Partial<Pick<Session, 'name' | 'model' | 'permissionMode' | 'remoteControl' | 'accountId' | 'githubAccountId' | 'awsProfileIds' | 'shared' | 'watchable' | 'idleStopHours' | 'deleteStoppedDays'>>
 ) {
 	const cols: Record<string, string> = {
+		idleStopHours: 'idle_stop_hours',
+		deleteStoppedDays: 'delete_stopped_days',
 		shared: 'shared',
 		watchable: 'watchable',
 		name: 'name',
@@ -969,6 +983,8 @@ function toRule(r: Row): LinearRule {
 		comment: !!r.comment,
 		moveToStarted: !!r.move_to_started,
 		enabled: !!r.enabled,
+		idleStopHours: (r.idle_stop_hours as number) ?? null,
+		deleteStoppedDays: (r.delete_stopped_days as number) ?? null,
 		createdAt: r.created_at as string,
 		lastCheckedAt: (r.last_checked_at as string) ?? null,
 		lastError: (r.last_error as string) ?? null
@@ -1001,6 +1017,8 @@ const RULE_COLS = [
 	['prompt', 'prompt'],
 	['comment', 'comment'],
 	['move_to_started', 'moveToStarted'],
+	['idle_stop_hours', 'idleStopHours'],
+	['delete_stopped_days', 'deleteStoppedDays'],
 	['enabled', 'enabled']
 ] as const;
 

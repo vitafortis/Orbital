@@ -64,12 +64,15 @@ Changes to a session's account, GitHub connection, model, permissions or Remote 
 
 ### Expiry
 
-Under **Settings → General**, admins can keep sessions short-lived:
+Expiry keeps sessions short-lived. A running session that's idle for a set time stops, and a stopped session is deleted a set time later, with its clone and conversations. Idle means no new conversation and nothing typed in its terminals; a session whose agent is working is never idle. Pushed commits stay on GitHub.
 
-- **Stop idle sessions after (hours)**: a running session with no new conversation and nothing typed in its terminals for this long stops. A session whose agent is working is never idle.
-- **Delete stopped sessions after (days)**: a stopped session is deleted this long after it stopped, with its clone and conversations.
+It's set at three levels, and the most specific one wins:
 
-`0` means never. Sessions show when they'll stop or be deleted.
+1. **Defaults**, under **Settings → General → Expiry** (admins): one pair for **sessions people start**, and one for **sessions automations start**, so triggered sessions can come and go quickly while people's stay around.
+2. **A Linear rule** can set its own, for the sessions it starts (see [Automations](automations.html)).
+3. **A session** can set its own: under **Expiry** on New session, or in the session's panel, by whoever can change what it runs as. Empty follows the defaults; `0` means never.
+
+Hours and days take fractions: `0.25` hours is 15 minutes. Sessions show when they'll stop or be deleted.
 
 ## Shared sessions
 

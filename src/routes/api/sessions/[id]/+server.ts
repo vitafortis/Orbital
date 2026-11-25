@@ -3,7 +3,7 @@ import { accountForSession, githubAccountForSession } from '#lib/server/owned.ts
 import { canChangeSetup } from '#lib/access.ts';
 import { BadRequest, body, Forbidden, handler, NotFound } from '#lib/server/http.ts';
 import { AGENT_LABEL, AGENT_PERMISSION_MODES } from '#lib/providers.ts';
-import { parseAwsProfileIds, parseModel, parseName, parsePermissionMode } from '#lib/server/sessions/input.ts';
+import { parseAwsProfileIds, parseExpiry, parseModel, parseName, parsePermissionMode } from '#lib/server/sessions/input.ts';
 import { writeAwsCredentials } from '#lib/server/sessions/aws.ts';
 import { pokeLive } from '#lib/server/sessions/live.ts';
 import { deleteSession } from '#lib/server/sessions/runtime.ts';
@@ -20,7 +20,7 @@ function load(id: string) {
 export const GET: RequestHandler = handler(({ params }) => json(load(params.id)));
 
 /** What a session runs as and with: its owner's to change, or an admin's for a shared session. */
-const SETUP = ['model', 'permissionMode', 'remoteControl', 'awsProfileIds', 'accountId', 'githubAccountId', 'watchable'];
+const SETUP = ['model', 'permissionMode', 'remoteControl', 'awsProfileIds', 'accountId', 'githubAccountId', 'watchable', 'idleStopHours', 'deleteStoppedDays'];
 
 /**
  * Settings that apply from the next launch (Restart Claude, or Stop then Start), and sharing.
@@ -40,6 +40,11 @@ export const PATCH: RequestHandler = handler(async ({ params, request, locals })
 	// Whose own accounts it may use: nobody's once it's shared.
 	const user = shared ? null : s.ownerId;
 	if ('watchable' in b) patch.watchable = b.watchable === true;
+	if ('idleStopHours' in b || 'deleteStoppedDays' in b) {
+		const e = parseExpiry(b);
+		if ('idleStopHours' in b) patch.idleStopHours = e.idleStopHours;
+		if ('deleteStoppedDays' in b) patch.deleteStoppedDays = e.deleteStoppedDays;
+	}
 	if ('name' in b) patch.name = parseName(b.name);
 	if ('model' in b) patch.model = parseModel(b.model);
 	if ('permissionMode' in b) patch.permissionMode = parsePermissionMode(b.permissionMode);

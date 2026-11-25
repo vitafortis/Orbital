@@ -4,6 +4,7 @@
 	import { onMount, tick, untrack } from 'svelte';
 	import { ChevronDown, CircleAlert, FolderPlus, GitBranch, GitPullRequest, KeyRound, Layers, ListChecks, LoaderCircle, Radio, Rocket, SlidersHorizontal, Wand } from '@lucide/svelte';
 	import AskAccess from '#lib/components/AskAccess.svelte';
+	import ExpiryFields from '#lib/components/ExpiryFields.svelte';
 	import AgentBadge from '#lib/components/AgentBadge.svelte';
 	import AwsProfilePicker from '#lib/components/AwsProfilePicker.svelte';
 	import BrandIcon from '#lib/components/BrandIcon.svelte';
@@ -59,6 +60,8 @@
 	let permissionMode = $state<PermissionMode>(initial.settings.defaultPermissionMode);
 	let remoteControl = $state(initial.settings.defaultRemoteControl);
 	let shared = $state(false);
+	let expIdle = $state<number | null>(null);
+	let expDelete = $state<number | null>(null);
 	let busy = $state(false);
 	let error = $state('');
 
@@ -433,7 +436,9 @@
 				permissionMode,
 				remoteControl: rcAvailable && remoteControl,
 				awsProfileIds,
-				shared
+				shared,
+				idleStopHours: expIdle,
+				deleteStoppedDays: expDelete
 			});
 			remember(full);
 			upsertSession(s);
@@ -806,6 +811,11 @@
 						</p>
 					</div>
 					<Switch checked={rcAvailable && remoteControl} disabled={!rcAvailable} label="Remote Control" onchange={(v) => (remoteControl = v)} />
+				</div>
+				<!-- Its own expiry, e.g. a quick look that should go away soon; empty follows Settings → General. -->
+				<div>
+					<p class="mb-1.5 text-[0.8125rem] font-medium">Expiry <span class="font-normal text-muted-foreground">· empty: the defaults</span></p>
+					<ExpiryFields id="new-exp" bind:idleStopHours={expIdle} bind:deleteStoppedDays={expDelete} defaults={{ idleStopHours: data.settings.idleStopHours, deleteStoppedDays: data.settings.deleteStoppedDays }} />
 				</div>
 				{#if page.data.viewer?.admin}
 					<!-- Shared: the organization's. Every member can run it; only admins change its accounts. -->
