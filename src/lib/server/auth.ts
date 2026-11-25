@@ -12,7 +12,7 @@ const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 export type AuthState = 'disabled' | 'setup' | 'anonymous' | 'authenticated';
 
 /** Stand-in user when sign-in is off. */
-const OPEN_USER: User = { id: 'open', email: 'admin', name: 'Admin', role: 'admin', baseRole: 'admin', rolePinned: false, roleRule: null, tempRole: null, tempUntil: null, source: 'local', createdAt: new Date(0).toISOString(), lastLoginAt: null };
+const OPEN_USER: User = { id: 'open', email: 'admin', name: 'Admin', role: 'admin', baseRole: 'admin', rolePinned: false, roleRule: null, tempRole: null, tempUntil: null, hasPassword: false, ssoLinked: false, source: 'local', createdAt: new Date(0).toISOString(), lastLoginAt: null };
 
 let bootstrapped = false;
 

@@ -536,6 +536,11 @@ export interface User {
 	/** A higher role for a while, and until when. */
 	tempRole: UserRole | null;
 	tempUntil: string | null;
+	/** Can sign in with a password. */
+	hasPassword: boolean;
+	/** A single sign-on identity is linked: they can sign in with SSO. */
+	ssoLinked: boolean;
+	/** How they first came: made here with a password, or by signing in through SSO. */
 	source: UserSource;
 	createdAt: string;
 	lastLoginAt: string | null;
