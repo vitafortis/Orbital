@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="utf-8" />
+	<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+	<title>Orbital · Claude Code sessions on your own hardware</title>
+	<meta name="description" content="Run Claude Code, Codex and Gemini CLI in a container per session on your own servers, with terminals in the browser, single sign-on, roles and automations." />
+	<link rel="icon" href="logo.svg" />
+	<link rel="preconnect" href="https://fonts.googleapis.com" />
+	<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+	<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap" />
+	<link rel="stylesheet" href="assets/site.css" />
+</head>
+<body>
+	<header class="top">
+		<div class="wrap">
+			<a class="brand" href="./"><img src="logo.svg" alt="" />Orbital</a>
+			<nav>
+				<a href="docs/index.html">Docs</a>
+				<a class="hide-sm" href="docs/install.html">Install</a>
+				<a class="hide-sm" href="docs/security.html">Security</a>
+				<a href="https://github.com/vitafortis/Orbital">GitHub</a>
+			</nav>
+		</div>
+	</header>
+
+	<main class="wrap">
+		<section class="hero">
+			<h1>Claude Code sessions on your own hardware</h1>
+			<p>Pick a repo and Claude Code starts in its own container on your servers, with a terminal in the browser, live summaries of every session, and sessions you can stop and pick up again.</p>
+			<div class="ctas">
+				<a class="btn primary" href="docs/install.html">Install with Docker</a>
+				<a class="btn" href="docs/index.html">Read the docs</a>
+			</div>
+			<img class="shot" src="screenshots/overview.png" alt="Orbital's sessions overview: each session's state, latest exchange, tasks and screen" width="1600" height="1000" />
+		</section>
+
+		<section class="lede" style="padding-block: 3rem 1rem">
+			<h2>One container per session, one place to watch them all</h2>
+			<p>Orbital clones the repo into a fresh container, starts the agent inside tmux, and keeps the clone, home folder and conversations in a volume. Containers are disposable; nothing is rebuilt per project.</p>
+			<div class="models">
+				<span>Claude subscription</span><span>Anthropic API</span><span>Amazon Bedrock</span><span>Google Vertex AI</span><span>Microsoft Foundry</span><span>LLM gateways</span><span>Codex CLI</span><span>Gemini CLI</span>
+			</div>
+		</section>
+
+		<section class="feature">
+			<div class="text">
+				<h3>A real terminal, in any browser</h3>
+				<p>Open a session as a full terminal. Closing the tab doesn't stop it, and several people can watch the same one.</p>
+				<ul>
+					<li><b>Questions as buttons:</b> permission prompts and choices show above the terminal.</li>
+					<li><b>A Shell tab</b> opens a second terminal in the same container.</li>
+					<li><b>Attach files</b> by pasting or dropping them: screenshots, logs, anything.</li>
+					<li><b>Remote Control:</b> subscription sessions also show up in claude.ai and the Claude app.</li>
+				</ul>
+			</div>
+			<img src="screenshots/session.png" alt="A Claude Code session: terminal, summary, tasks, git status and conversations" loading="lazy" />
+		</section>
+
+		<section class="feature">
+			<div class="text">
+				<h3>Readable on a phone</h3>
+				<p>The Read tab formats the conversation from Claude Code's transcript: the latest turn in full, earlier ones folded, what's new since you last looked, and a box to reply.</p>
+				<p>What a session needs from you, such as a login, a command to run or an approval, lands in one To do list with the exact command to copy.</p>
+			</div>
+			<div class="phones">
+				<img src="screenshots/phone-overview.png" alt="The overview on a phone" loading="lazy" />
+				<img src="screenshots/phone-session.png" alt="A session on a phone, with the key bar" loading="lazy" />
+			</div>
+		</section>
+
+		<section class="feature">
+			<div class="text">
+				<h3>Skills, pull requests and automations</h3>
+				<p>Start a session from a skill instead of a message, such as <code>/code-review</code> on a pull request. Skills live in a shared Library, written in Orbital or taken from a folder in any repo.</p>
+				<p>Label a Linear issue and a session starts on its own, on Linear's branch name, and comments back with the pull request.</p>
+			</div>
+			<img src="screenshots/new-skill.png" alt="New session in skill mode: /code-review on a pull request" loading="lazy" />
+		</section>
+
+		<section class="feature" id="teams">
+			<div class="text">
+				<h3>Ready for a team</h3>
+				<ul>
+					<li><b>Single sign-on</b> with any OpenID Connect provider or your reverse proxy, and SSO-only sign-in.</li>
+					<li><b>Roles:</b> admins, members and viewers, enforced on the server. Raise someone for a few hours, or let them ask.</li>
+					<li><b>Yours and the organization's:</b> people sign in to their own Claude plan and GitHub; API keys, cloud accounts and GitHub Apps stay with admins.</li>
+					<li><b>Shared sessions</b> anyone can run, and private ones others see by name only.</li>
+					<li><b>Expiry:</b> stop idle sessions and delete old ones on a schedule.</li>
+				</ul>
+				<p><a href="docs/security.html">How Orbital keeps credentials apart →</a></p>
+			</div>
+			<img src="screenshots/sign-in.png" alt="Settings → Sign-in &amp; users: what people see of other people's sessions, an access request, and users with their roles" loading="lazy" />
+		</section>
+
+		<section style="padding-block: 3.5rem; border-top: 1px solid var(--border)">
+			<div class="lede">
+				<h2>Credentials stay on the server</h2>
+				<p>Tokens and keys are encrypted at rest and never sent back to the browser. A session gets only what it's given, as files in its own container.</p>
+			</div>
+			<div class="grid3">
+				<div class="tile"><h4>GitHub Apps</h4><p>For organizations that allow apps but not personal tokens. Orbital keeps the hour-long installation tokens renewed, also inside running sessions.</p></div>
+				<div class="tile"><h4>AWS through SSO</h4><p>Sign in to IAM Identity Center once. Each session gets only its profiles' short-lived keys, renewed while it runs.</p></div>
+				<div class="tile"><h4>Your Notion</h4><p>Each person connects their own Notion, and Claude in their sessions reaches it as them, through Notion's hosted MCP server.</p></div>
+			</div>
+		</section>
+
+		<section class="start">
+			<div>
+				<h2>Up in a minute</h2>
+				<p>All you need is Docker. Everything else is set up in the browser: create the admin, sign in to a model account, add GitHub, start a session.</p>
+				<a class="btn" href="docs/install.html">Installation guide</a>
+			</div>
+			<pre><code>mkdir orbital &amp;&amp; cd orbital
+curl -fsSLO https://raw.githubusercontent.com/vitafortis/Orbital/main/compose.yaml
+docker compose up -d
+# then open http://&lt;your-host&gt;:3050</code></pre>
+		</section>
+	</main>
+
+	<footer>
+		<div class="wrap">
+			<span>Orbital is open source under Apache 2.0, and not affiliated with Anthropic, OpenAI or Google. Screenshots use demo data.</span>
+			<span><a href="docs/index.html">Docs</a> · <a href="https://github.com/vitafortis/Orbital">GitHub</a> · <a href="https://github.com/vitafortis/Orbital/releases">Releases</a></span>
+		</div>
+	</footer>
+</body>
+</html>

@@ -23,7 +23,7 @@ Every screen of Orbital, from a test install with demo data: the conversations, 
 
 | | |
 | --- | --- |
-| ![Accounts](accounts.png) **Models, profiles and GitHub** | ![Accounts, light theme](accounts-light.png) **Accounts**, light theme |
+| ![Accounts](accounts.png) **The organization's accounts**: models, profiles and GitHub | ![Accounts, light theme](accounts-light.png) **Accounts**, light theme |
 | ![Add account](accounts-add.png) **Add a model account**: every provider | ![Profile](accounts-profile.png) **A profile**: repo patterns to account, model, permissions |
 
 ## Automations
@@ -36,7 +36,7 @@ Every screen of Orbital, from a test install with demo data: the conversations, 
 
 | | |
 | --- | --- |
-| ![Settings](settings.png) **Settings**: images, network, limits, defaults | ![Sign-in](sign-in.png) **Sign-in & users**: password, SSO, reverse proxy, roles |
+| ![Settings](settings.png) **Settings**: images, network, limits, defaults | ![Sign-in](sign-in.png) **Sign-in & users**: other people's sessions, access requests, users and their roles |
 | ![Sign-in page](login.png) **Sign-in page** with single sign-on | ![Setup](setup.png) **First run**: create the local admin |
 
 ## Phone
