@@ -23,6 +23,7 @@
 	} from '@lucide/svelte';
 	import type { Session } from '#lib/types.ts';
 	import Logo from '#lib/components/Logo.svelte';
+	import SidebarOptions, { DEFAULT_VIEW, type SidebarView } from '#lib/components/SidebarOptions.svelte';
 	import Shortcuts from '#lib/components/Shortcuts.svelte';
 	import Toaster from '#lib/components/Toaster.svelte';
 	import ConfirmHost from '#lib/components/ConfirmHost.svelte';
@@ -82,9 +83,21 @@
 
 	// Pinned sessions stay on top of the sidebar, in this browser.
 	let pinned = $state<string[]>([]);
+	// What the list shows and in which order (SidebarOptions), in this browser too.
+	let view = $state<SidebarView>({ ...DEFAULT_VIEW });
+	let viewLoaded = false;
 	$effect(() => {
 		try {
 			pinned = JSON.parse(localStorage.getItem('orb.pinned') ?? '[]');
+			view = { ...DEFAULT_VIEW, ...JSON.parse(localStorage.getItem('orb.sidebar') ?? '{}') };
+		} catch {}
+		viewLoaded = true;
+	});
+	$effect(() => {
+		const v = $state.snapshot(view);
+		if (!viewLoaded) return;
+		try {
+			localStorage.setItem('orb.sidebar', JSON.stringify(v));
 		} catch {}
 	});
 	function togglePin(id: string) {
@@ -93,10 +106,21 @@
 			localStorage.setItem('orb.pinned', JSON.stringify(pinned));
 		} catch {}
 	}
+	const byName = (a: Session, b: Session) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base', numeric: true });
 	const ordered = $derived.by(() => {
-		const all = sortByRecency(shown.list, shown.live);
+		const all = view.sort === 'name' ? [...shown.list].sort(byName) : sortByRecency(shown.list, shown.live);
 		return [...all.filter((s) => pinned.includes(s.id)), ...all.filter((s) => !pinned.includes(s.id))];
 	});
+	/** Whether the view options let a session in: pinned ones and the open one always. */
+	function listed(s: Session): boolean {
+		if (pinned.includes(s.id) || page.url.pathname === `/s/${s.id}`) return true;
+		if (view.show === 'online' && (s.status === 'stopped' || s.status === 'error')) return false;
+		if (view.who === 'people' && s.linear) return false;
+		if (view.who === 'mine' && !(s.ownerId && s.ownerId === data.viewer?.id)) return false;
+		return true;
+	}
+	const visible = $derived(ordered.filter(listed));
+	const hidden = $derived(ordered.length - visible.length);
 
 	/** The sidebar's second line: what the session is doing. */
 	function doing(s: Session, view: DisplayState): { text: string; tone: string } {
@@ -177,14 +201,17 @@
 	{#if !compact}
 		<div class="mt-5 flex items-center justify-between px-4 pb-1.5">
 			<span class="text-[0.6875rem] font-semibold tracking-wider text-muted-foreground/80 uppercase">Sessions</span>
-			{#if !sessions.connected && signedIn}<span class="text-[0.625rem] text-muted-foreground/70" title="Live updates reconnecting">offline</span>{/if}
+			<span class="flex items-center gap-1.5">
+				{#if !sessions.connected && signedIn}<span class="text-[0.625rem] text-muted-foreground/70" title="Live updates reconnecting">offline</span>{/if}
+				{#if shown.list.length}<SidebarOptions bind:view />{/if}
+			</span>
 		</div>
 	{:else}
 		<div class="mt-4"></div>
 	{/if}
 
 	<div class="min-h-0 flex-1 space-y-1.5 overflow-y-auto px-2 pt-0.5 pb-2">
-		{#each ordered as s (s.id)}
+		{#each visible as s (s.id)}
 			{@const active = page.url.pathname === `/s/${s.id}`}
 			{@const view = displayState(s, shown.live[s.id])}
 			{@const now = doing(s, view)}
@@ -237,11 +264,22 @@
 			</div>
 		{:else}
 			{#if !compact}
+				{#if hidden}
+					<p class="px-2.5 py-3 text-center text-xs text-muted-foreground">None match the view options.</p>
+				{:else}
 				<a href="/new" class="block w-full rounded-lg border border-dashed border-border px-3 py-4 text-center text-xs text-muted-foreground hover:border-primary/50 hover:text-foreground">
 					No sessions yet.<br /><span class="text-primary">Start one →</span>
 				</a>
+				{/if}
 			{/if}
 		{/each}
+		{#if hidden && !compact}
+			<!-- What the view options leave out: say so, so nothing seems lost. -->
+			<p class="flex items-center justify-between gap-2 px-2.5 pt-1 text-[0.6875rem] text-muted-foreground">
+				<span>{hidden} more hidden</span>
+				<button type="button" class="font-medium text-primary hover:underline" onclick={() => (view = { ...view, show: 'all', who: 'everyone' })}>Show all</button>
+			</p>
+		{/if}
 	</div>
 
 	{#if data.viewer && data.auth === 'authenticated' && !compact}
@@ -299,7 +337,7 @@
 	</div>
 	<!-- ⌘K / Ctrl+K: jump to a session or page. -->
 	<CommandPalette />
-	<Shortcuts sessions={ordered} />
+	<Shortcuts sessions={visible} />
 {/if}
 
 <Toaster />
